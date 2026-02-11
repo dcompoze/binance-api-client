@@ -911,7 +911,7 @@ pub enum DepthCacheState {
 ///
 /// ```rust,ignore
 /// use binance_api_client::Binance;
-/// use binance_api_client::websocket::{DepthCacheManager, DepthCacheConfig};
+/// use binance_api_client::ws::{DepthCacheManager, DepthCacheConfig};
 ///
 /// let client = Binance::new_unauthenticated()?;
 /// let config = DepthCacheConfig::default();
@@ -1175,7 +1175,7 @@ impl DepthCacheManager {
 ///
 /// ```rust,ignore
 /// use binance_api_client::Binance;
-/// use binance_api_client::websocket::UserDataStreamManager;
+/// use binance_api_client::ws::UserDataStreamManager;
 ///
 /// let client = Binance::new("api_key", "secret_key")?;
 /// let mut manager = UserDataStreamManager::new(client).await?;

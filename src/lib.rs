@@ -78,21 +78,21 @@
     unused_import_braces
 )]
 
-pub mod api;
+pub mod rest;
 pub mod client;
 pub mod config;
 pub mod credentials;
 pub mod error;
 pub mod models;
 pub mod types;
-pub mod websocket;
+pub mod ws;
 
 // Re-export main types at crate root
 pub use client::Client;
 pub use config::{Config, ConfigBuilder};
 pub use credentials::{Credentials, SignatureType};
 pub use error::{Error, Result};
-pub use websocket::{
+pub use ws::{
     ConnectionHealthMonitor, ConnectionState, DepthCache, DepthCacheConfig, DepthCacheManager,
     DepthCacheState, ReconnectConfig, ReconnectingWebSocket, UserDataStreamManager,
     WebSocketClient, WebSocketConnection, WebSocketEventStream,
@@ -215,7 +215,7 @@ pub use models::{
 };
 
 // Re-export order builders for convenience
-pub use api::{
+pub use rest::{
     CancelReplaceOrder, CancelReplaceOrderBuilder, NewOcoOrder, NewOpoOrder, NewOpocoOrder,
     NewOrder, NewOtoOrder, NewOtocoOrder, OcoOrderBuilder, OpoOrderBuilder, OpocoOrderBuilder,
     OrderBuilder, OtoOrderBuilder, OtocoOrderBuilder,
@@ -424,8 +424,8 @@ impl Binance {
     /// // Get order book
     /// let depth = client.market().depth("BTCUSDT", Some(10)).await?;
     /// ```
-    pub fn market(&self) -> api::Market {
-        api::Market::new(self.client.clone())
+    pub fn market(&self) -> rest::Market {
+        rest::Market::new(self.client.clone())
     }
 
     /// Access user data stream API endpoints.
@@ -449,8 +449,8 @@ impl Binance {
     /// // Close when done
     /// client.user_stream().close(&listen_key).await?;
     /// ```
-    pub fn user_stream(&self) -> api::UserStream {
-        api::UserStream::new(self.client.clone())
+    pub fn user_stream(&self) -> rest::UserStream {
+        rest::UserStream::new(self.client.clone())
     }
 
     /// Access account and trading API endpoints.
@@ -482,8 +482,8 @@ impl Binance {
     ///
     /// let response = client.account().create_order(&order).await?;
     /// ```
-    pub fn account(&self) -> api::Account {
-        api::Account::new(self.client.clone())
+    pub fn account(&self) -> rest::Account {
+        rest::Account::new(self.client.clone())
     }
 
     /// Access wallet SAPI endpoints.
@@ -514,8 +514,8 @@ impl Binance {
     /// // Get trade fees
     /// let fees = client.wallet().trade_fee(Some("BTCUSDT")).await?;
     /// ```
-    pub fn wallet(&self) -> api::Wallet {
-        api::Wallet::new(self.client.clone())
+    pub fn wallet(&self) -> rest::Wallet {
+        rest::Wallet::new(self.client.clone())
     }
 
     /// Access margin trading SAPI endpoints.
@@ -547,8 +547,8 @@ impl Binance {
     /// // Borrow
     /// let loan = client.margin().loan("USDT", "50.0", false, None).await?;
     /// ```
-    pub fn margin(&self) -> api::Margin {
-        api::Margin::new(self.client.clone())
+    pub fn margin(&self) -> rest::Margin {
+        rest::Margin::new(self.client.clone())
     }
 
     /// Access WebSocket streaming API.
@@ -574,8 +574,8 @@ impl Binance {
     ///     println!("{:?}", event?);
     /// }
     /// ```
-    pub fn websocket(&self) -> websocket::WebSocketClient {
-        websocket::WebSocketClient::new(self.client.config().clone())
+    pub fn websocket(&self) -> ws::WebSocketClient {
+        ws::WebSocketClient::new(self.client.config().clone())
     }
 }
 

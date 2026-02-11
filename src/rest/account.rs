@@ -403,7 +403,7 @@ impl Account {
     /// # Example
     ///
     /// ```rust,ignore
-    /// use binance_api_client::api::account::CancelReplaceOrderBuilder;
+    /// use binance_api_client::rest::account::CancelReplaceOrderBuilder;
     /// use binance_api_client::{CancelReplaceMode, OrderSide, OrderType, TimeInForce};
     ///
     /// let request = CancelReplaceOrderBuilder::new("BTCUSDT", OrderSide::Buy, OrderType::Limit, CancelReplaceMode::StopOnFailure)
@@ -985,7 +985,7 @@ impl Account {
 /// # Example
 ///
 /// ```rust
-/// use binance_api_client::api::account::OrderBuilder;
+/// use binance_api_client::rest::account::OrderBuilder;
 /// use binance_api_client::{OrderSide, OrderType, TimeInForce};
 ///
 /// let order = OrderBuilder::new("BTCUSDT", OrderSide::Buy, OrderType::Limit)
