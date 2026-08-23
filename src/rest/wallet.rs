@@ -61,7 +61,6 @@ pub struct Wallet {
 }
 
 impl Wallet {
-    /// Create a new Wallet API client.
     pub(crate) fn new(client: Client) -> Self {
         Self { client }
     }

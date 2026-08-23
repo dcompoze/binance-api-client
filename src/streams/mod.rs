@@ -89,7 +89,6 @@ pub struct WebSocketClient {
 }
 
 impl WebSocketClient {
-    /// Create a new WebSocket client.
     pub(crate) fn new(config: Config) -> Self {
         Self { config }
     }
@@ -602,7 +601,6 @@ impl ReconnectingWebSocket {
         let reconnect_count = Arc::new(AtomicU64::new(0));
         let is_closed = Arc::new(AtomicBool::new(false));
 
-        // Perform initial connection
         let (ws_stream, _) = connect_async(&url).await.map_err(Error::WebSocket)?;
         {
             let mut conn = connection.lock().await;
@@ -618,7 +616,6 @@ impl ReconnectingWebSocket {
             event_rx,
         };
 
-        // Start the read loop in a background task
         tokio::spawn(async move {
             Self::read_loop(
                 url,
@@ -649,7 +646,6 @@ impl ReconnectingWebSocket {
                 break;
             }
 
-            // Read from connection
             let event = {
                 let mut conn_guard = connection.lock().await;
                 if let Some(ref mut conn) = *conn_guard {
@@ -676,14 +672,11 @@ impl ReconnectingWebSocket {
             match event {
                 Some(Ok(ev)) => {
                     if event_tx.send(Ok(ev)).await.is_err() {
-                        // Receiver dropped, exit
                         break;
                     }
                 }
                 Some(Err(e)) => {
-                    // Send error and attempt reconnect
                     if event_tx.send(Err(e)).await.is_err() {
-                        // Receiver dropped, exit
                         break;
                     }
                     Self::attempt_reconnect(
@@ -697,7 +690,6 @@ impl ReconnectingWebSocket {
                     .await;
                 }
                 None => {
-                    // Connection closed or timed out, attempt reconnect
                     Self::attempt_reconnect(
                         &url,
                         &config,
@@ -736,11 +728,9 @@ impl ReconnectingWebSocket {
             return;
         }
 
-        // Calculate delay with exponential backoff and jitter
         let delay = Self::calculate_backoff_delay(count, config);
         sleep(delay).await;
 
-        // Attempt to reconnect
         match connect_async(url).await {
             Ok((ws_stream, _)) => {
                 let mut conn = connection.lock().await;
@@ -760,7 +750,7 @@ impl ReconnectingWebSocket {
         let max_delay_ms = config.max_reconnect_delay.as_millis() as u64;
         let delay_ms = exp_delay.min(max_delay_ms);
 
-        // Add jitter (±25%)
+        // Add up to 25% jitter in either direction
         let jitter = (delay_ms as f64 * 0.25 * (rand_simple() * 2.0 - 1.0)) as i64;
         let final_delay = (delay_ms as i64 + jitter).max(0) as u64;
 
@@ -901,17 +891,14 @@ impl DepthCache {
 
     /// Apply a depth update event to the cache.
     pub fn apply_update(&mut self, event: &DepthEvent) -> DepthUpdateResult {
-        // An update fully covered by the snapshot is ignored.
         if event.final_update_id <= self.last_update_id {
             return DepthUpdateResult::Ignored;
         }
 
-        // A sequence gap requires re-synchronization.
         if event.first_update_id > self.last_update_id + 1 {
             return DepthUpdateResult::Gap;
         }
 
-        // Apply bid updates
         for bid in &event.bids {
             if bid.quantity == 0.0 {
                 self.bids.remove(&OrderedFloat(bid.price));
@@ -920,7 +907,6 @@ impl DepthCache {
             }
         }
 
-        // Apply ask updates
         for ask in &event.asks {
             if ask.quantity == 0.0 {
                 self.asks.remove(&OrderedFloat(ask.price));
@@ -1090,13 +1076,11 @@ impl DepthCacheManager {
         let is_stopped = Arc::new(AtomicBool::new(false));
         let (cache_tx, cache_rx) = mpsc::channel(100);
 
-        // Clone for the background task
         let symbol_clone = symbol.clone();
         let cache_clone = cache.clone();
         let state_clone = state.clone();
         let is_stopped_clone = is_stopped.clone();
 
-        // Start the background sync task
         tokio::spawn(async move {
             Self::sync_loop(
                 client,
@@ -1136,10 +1120,8 @@ impl DepthCacheManager {
                 break;
             }
 
-            // Reset state
             *state.write().await = DepthCacheState::Initializing;
 
-            // Connect to WebSocket
             let mut conn = match ws.connect(&stream).await {
                 Ok(c) => c,
                 Err(_) => {
@@ -1202,7 +1184,6 @@ impl DepthCacheManager {
                 continue;
             };
 
-            // Initialize the cache and replay the buffered events.
             let initial_cache = {
                 let mut cache_guard = cache.write().await;
                 cache_guard.initialize_from_snapshot(&snapshot);
@@ -1227,7 +1208,6 @@ impl DepthCacheManager {
                 break;
             }
 
-            // Main update loop.
             let mut resync = false;
             let last_refresh = Instant::now();
             while !resync {
@@ -1265,7 +1245,6 @@ impl DepthCacheManager {
                         }
                     }
                     Ok(Some(Err(_))) | Ok(None) => {
-                        // Connection closed or errored.
                         resync = true;
                     }
                     Err(_) => {
@@ -1283,7 +1262,6 @@ impl DepthCacheManager {
                 *state.write().await = DepthCacheState::OutOfSync;
             }
 
-            // Brief delay before reconnecting
             sleep(Duration::from_millis(100)).await;
         }
 
@@ -1394,18 +1372,15 @@ impl UserDataStreamManager {
     ///
     /// This will start the listen key and begin receiving user data events.
     pub async fn new(client: crate::Binance) -> Result<Self> {
-        // Get initial listen key
         let listen_key = client.user_stream().start().await?;
         let listen_key = Arc::new(RwLock::new(listen_key));
         let is_stopped = Arc::new(AtomicBool::new(false));
         let (event_tx, event_rx) = mpsc::channel(1000);
 
-        // Clone for background tasks
         let listen_key_clone = listen_key.clone();
         let is_stopped_clone = is_stopped.clone();
         let client_clone = client.clone();
 
-        // Start keep-alive task
         tokio::spawn(async move {
             Self::keepalive_loop(
                 client_clone.clone(),
@@ -1415,7 +1390,6 @@ impl UserDataStreamManager {
             .await;
         });
 
-        // Start WebSocket connection task
         let listen_key_ws = listen_key.clone();
         let is_stopped_ws = is_stopped.clone();
 
@@ -1447,14 +1421,12 @@ impl UserDataStreamManager {
 
             let key = listen_key.read().await.clone();
             if client.user_stream().keepalive(&key).await.is_err() {
-                // If keepalive fails, try to get a new listen key
                 if let Ok(new_key) = client.user_stream().start().await {
                     *listen_key.write().await = new_key;
                 }
             }
         }
 
-        // Close the listen key when stopping
         let key = listen_key.read().await.clone();
         let _ = client.user_stream().close(&key).await;
     }
@@ -1476,37 +1448,30 @@ impl UserDataStreamManager {
             let ws = client.streams();
 
             match ws.connect_user_stream(&key).await {
-                Ok(mut conn) => {
-                    loop {
-                        if is_stopped.load(Ordering::SeqCst) {
+                Ok(mut conn) => loop {
+                    if is_stopped.load(Ordering::SeqCst) {
+                        break;
+                    }
+
+                    match timeout(Duration::from_secs(WS_TIMEOUT_SECS), conn.next()).await {
+                        Ok(Some(event)) => {
+                            if event_tx.send(event).await.is_err() {
+                                return;
+                            }
+                        }
+                        Ok(None) => {
                             break;
                         }
-
-                        match timeout(Duration::from_secs(WS_TIMEOUT_SECS), conn.next()).await {
-                            Ok(Some(event)) => {
-                                if event_tx.send(event).await.is_err() {
-                                    // Receiver dropped
-                                    return;
-                                }
-                            }
-                            Ok(None) => {
-                                // Connection closed
-                                break;
-                            }
-                            Err(_) => {
-                                // Timeout, continue
-                                continue;
-                            }
+                        Err(_) => {
+                            continue;
                         }
                     }
-                }
+                },
                 Err(_) => {
-                    // Connection failed, wait before retry
                     sleep(reconnect_config.base_delay).await;
                 }
             }
 
-            // Brief delay before reconnecting
             sleep(Duration::from_millis(100)).await;
         }
     }
@@ -1576,7 +1541,6 @@ mod tests {
     fn test_depth_cache() {
         let mut cache = DepthCache::new("BTCUSDT");
 
-        // Add some bids and asks
         cache.bids.insert(OrderedFloat(50000.0), 1.0);
         cache.bids.insert(OrderedFloat(49999.0), 2.0);
         cache.asks.insert(OrderedFloat(50001.0), 1.5);
@@ -1630,12 +1594,10 @@ mod tests {
     fn test_backoff_delay() {
         let config = ReconnectConfig::default();
 
-        // First attempt should be around base delay
         let delay1 = ReconnectingWebSocket::calculate_backoff_delay(1, &config);
         assert!(delay1.as_millis() > 0);
         assert!(delay1 <= config.max_reconnect_delay);
 
-        // Later attempts should have longer delays (on average)
         let delay5 = ReconnectingWebSocket::calculate_backoff_delay(5, &config);
         assert!(delay5 <= config.max_reconnect_delay);
     }

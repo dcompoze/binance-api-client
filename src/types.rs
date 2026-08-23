@@ -535,7 +535,6 @@ mod tests {
         let stop_loss: OrderType = serde_json::from_str("\"STOP_LOSS\"").unwrap();
         assert_eq!(stop_loss, OrderType::StopLoss);
 
-        // Unknown type should deserialize to Other
         let other: OrderType = serde_json::from_str("\"UNKNOWN_TYPE\"").unwrap();
         assert_eq!(other, OrderType::Other);
     }

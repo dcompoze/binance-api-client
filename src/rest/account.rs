@@ -54,7 +54,6 @@ pub struct Account {
 }
 
 impl Account {
-    /// Create a new Account API client.
     pub(crate) fn new(client: Client) -> Self {
         Self { client }
     }

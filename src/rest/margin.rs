@@ -63,7 +63,6 @@ pub struct Margin {
 }
 
 impl Margin {
-    /// Create a new Margin API client.
     pub(crate) fn new(client: Client) -> Self {
         Self { client }
     }

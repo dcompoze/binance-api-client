@@ -25,7 +25,6 @@ async fn test_signed_request_is_percent_encoded_and_signed_over_encoded_payload(
         .await;
 
     let client = test_client(&mock_server);
-    // A symbol with reserved characters must be encoded before signing.
     let result = client
         .account()
         .my_trades("BTC&USDT=X", None, None, None, None, None)
@@ -36,7 +35,6 @@ async fn test_signed_request_is_percent_encoded_and_signed_over_encoded_payload(
     assert_eq!(requests.len(), 1);
     let query = requests[0].url.query().unwrap().to_string();
 
-    // The raw query must contain the encoded value, not the raw one.
     assert!(query.contains("symbol=BTC%26USDT%3DX"), "query: {}", query);
 
     // The signature must verify against the encoded payload as sent.

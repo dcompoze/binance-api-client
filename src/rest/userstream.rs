@@ -36,7 +36,6 @@ pub struct UserStream {
 }
 
 impl UserStream {
-    /// Create a new UserStream API client.
     pub(crate) fn new(client: Client) -> Self {
         Self { client }
     }

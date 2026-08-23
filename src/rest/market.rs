@@ -44,7 +44,6 @@ pub struct Market {
 }
 
 impl Market {
-    /// Create a new Market API client.
     pub(crate) fn new(client: Client) -> Self {
         Self { client }
     }
@@ -271,7 +270,6 @@ impl Market {
         if let Some(l) = limit {
             query.push_str(&format!("&limit={}", l));
         }
-        // This endpoint requires API key but not signature
         self.client
             .get_with_api_key(API_V3_HISTORICAL_TRADES, Some(&query))
             .await

@@ -693,7 +693,6 @@ mod tests {
         let debug_output = format!("{:?}", client);
         assert!(debug_output.contains("Binance"));
         assert!(debug_output.contains("has_credentials: true"));
-        // Should not contain the actual secret key
         assert!(!debug_output.contains("secret_key"));
     }
 }

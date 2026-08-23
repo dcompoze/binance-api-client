@@ -14,8 +14,6 @@ A Rust client library for the [Binance Spot API](https://developers.binance.com/
 - Server time synchronization
 - Production, testnet, and Binance.US endpoints
 
-User data streams use the WebSocket API (`userDataStream.subscribe`), since the listenKey endpoints were removed from Binance production on 2026-02-20.
-
 ## Library
 
 Public REST API client:

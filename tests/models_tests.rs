@@ -267,7 +267,6 @@ fn test_new_websocket_events() {
     let event: WebSocketEvent = serde_json::from_str(shutdown).unwrap();
     assert!(matches!(event, WebSocketEvent::ServerShutdown(_)));
 
-    // Unknown event types must not fail deserialization.
     let unknown = r#"{"e": "someFutureEvent", "E": 1}"#;
     let event: WebSocketEvent = serde_json::from_str(unknown).unwrap();
     assert!(matches!(event, WebSocketEvent::Unknown));

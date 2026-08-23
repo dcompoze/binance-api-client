@@ -255,7 +255,6 @@ fn test_parse_depth_event() {
 
 #[test]
 fn test_parse_combined_stream_message() {
-    // Combined stream messages have a wrapper with stream name and data
     let json = r#"{
         "stream": "btcusdt@aggTrade",
         "data": {

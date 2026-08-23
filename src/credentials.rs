@@ -146,12 +146,10 @@ impl Credentials {
     /// ```
     pub fn with_ed25519_key(api_key: impl Into<String>, private_key_bytes: &[u8]) -> Result<Self> {
         let key_pair = if private_key_bytes.len() == 32 {
-            // Raw 32-byte seed
             ring_sig::Ed25519KeyPair::from_seed_unchecked(private_key_bytes).map_err(|e| {
                 crate::error::Error::InvalidCredentials(format!("Invalid Ed25519 seed: {}", e))
             })?
         } else {
-            // PKCS#8 DER-encoded key
             ring_sig::Ed25519KeyPair::from_pkcs8(private_key_bytes).map_err(|e| {
                 crate::error::Error::InvalidCredentials(format!(
                     "Invalid Ed25519 PKCS#8 key: {}",
@@ -174,7 +172,6 @@ impl Credentials {
     /// * `api_key` - The API key
     /// * `pem` - Ed25519 private key in PKCS#8 PEM format
     pub fn with_ed25519_pem(api_key: impl Into<String>, pem: &str) -> Result<Self> {
-        // Extract the base64-encoded key from PEM format
         let der_bytes = extract_pem_der(pem, "PRIVATE KEY")?;
         Self::with_ed25519_key(api_key, &der_bytes)
     }
@@ -375,7 +372,6 @@ mod tests {
 
     #[test]
     fn test_sign_hmac() {
-        // Test vector: known key and message should produce known signature
         let creds = Credentials::new(
             "api_key",
             "NhqPtmdSJYdKjVHjA7PZj4Mge3R5YNiP1e3UZjInClVN65XAbvqqM6A7H5fATj0j",
@@ -397,7 +393,6 @@ mod tests {
     #[test]
     fn test_get_timestamp() {
         let ts = get_timestamp().unwrap();
-        // Timestamp should be reasonable (after Jan 1, 2020 in milliseconds)
         assert!(ts > 1577836800000);
     }
 
@@ -407,7 +402,6 @@ mod tests {
         let params = [("symbol", "BTCUSDT")];
         let query = build_signed_query_string(params, &creds, 5000).unwrap();
 
-        // Should contain recvWindow, timestamp, symbol, and signature
         assert!(query.contains("recvWindow=5000"));
         assert!(query.contains("timestamp="));
         assert!(query.contains("symbol=BTCUSDT"));
@@ -420,7 +414,6 @@ mod tests {
         let params = [("symbol", "BTCUSDT")];
         let query = build_signed_query_string(params, &creds, 0).unwrap();
 
-        // Should NOT contain recvWindow when set to 0
         assert!(!query.contains("recvWindow="));
         assert!(query.contains("timestamp="));
         assert!(query.contains("symbol=BTCUSDT"));
@@ -436,7 +429,6 @@ mod tests {
         let params = [("newClientOrderId", "my order+1&x=2")];
         let query = build_signed_query_string(params, &creds, 0).unwrap();
 
-        // The reserved characters must be encoded in the sent payload.
         assert!(query.contains("newClientOrderId=my%20order%2B1%26x%3D2"));
 
         // The signature must be computed over the encoded payload.
@@ -446,7 +438,6 @@ mod tests {
 
     #[test]
     fn test_ed25519_signing() {
-        // Generate a test Ed25519 key pair using ring
         let rng = ring::rand::SystemRandom::new();
         let pkcs8_bytes = ring_sig::Ed25519KeyPair::generate_pkcs8(&rng).unwrap();
 
@@ -456,7 +447,6 @@ mod tests {
         let message = "test message";
         let signature = creds.sign(message);
 
-        // Ed25519 signatures should be base64 encoded
         assert!(BASE64.decode(&signature).is_ok());
     }
 }
