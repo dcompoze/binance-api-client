@@ -23,6 +23,7 @@ impl std::error::Error for BinanceApiError {}
 
 /// Error types for the Binance client library.
 #[derive(Debug, Error)]
+#[non_exhaustive]
 pub enum Error {
     /// Binance API returned an error response.
     #[error("Binance API error {code}: {message}")]
@@ -32,7 +33,9 @@ pub enum Error {
     ///
     /// `retry_after` holds the value of the `Retry-After` header in seconds
     /// when the server provided one.
-    #[error("Rate limited (banned: {ip_banned}), code {code}: {message}")]
+    #[error(
+        "Rate limited (banned: {ip_banned}, retry after: {retry_after:?}), code {code}: {message}"
+    )]
     RateLimited {
         code: i32,
         message: String,
@@ -91,6 +94,10 @@ pub enum Error {
     /// Invalid credentials (RSA/Ed25519 key parsing error).
     #[error("Invalid credentials: {0}")]
     InvalidCredentials(String),
+
+    /// Stream management error (sync timeout, stopped manager).
+    #[error("Stream error: {0}")]
+    Stream(String),
 }
 
 impl Error {

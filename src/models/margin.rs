@@ -215,27 +215,33 @@ pub struct MarginOrderResult {
     pub client_order_id: String,
     /// Transaction time.
     pub transact_time: u64,
-    /// Price.
-    #[serde(with = "string_or_float")]
-    pub price: f64,
-    /// Original quantity.
-    #[serde(with = "string_or_float")]
-    pub orig_qty: f64,
-    /// Executed quantity.
-    #[serde(with = "string_or_float")]
-    pub executed_qty: f64,
-    /// Cumulative quote quantity.
-    #[serde(with = "string_or_float")]
-    pub cummulative_quote_qty: f64,
-    /// Order status.
-    pub status: OrderStatus,
-    /// Time in force.
-    pub time_in_force: TimeInForce,
-    /// Order type.
-    #[serde(rename = "type")]
-    pub order_type: OrderType,
-    /// Order side.
-    pub side: OrderSide,
+    /// Price. Absent on `ACK` responses.
+    #[serde(default, with = "string_or_float_option")]
+    pub price: Option<f64>,
+    /// Original quantity. Absent on `ACK` responses.
+    #[serde(default, with = "string_or_float_option")]
+    pub orig_qty: Option<f64>,
+    /// Executed quantity. Absent on `ACK` responses.
+    #[serde(default, with = "string_or_float_option")]
+    pub executed_qty: Option<f64>,
+    /// Cumulative quote quantity. Absent on `ACK` responses.
+    #[serde(default, with = "string_or_float_option")]
+    pub cummulative_quote_qty: Option<f64>,
+    /// Order status. Absent on `ACK` responses.
+    #[serde(default)]
+    pub status: Option<OrderStatus>,
+    /// Time in force. Absent on `ACK` responses.
+    #[serde(default)]
+    pub time_in_force: Option<TimeInForce>,
+    /// Order type. Absent on `ACK` responses.
+    #[serde(rename = "type", default)]
+    pub order_type: Option<OrderType>,
+    /// Order side. Absent on `ACK` responses.
+    #[serde(default)]
+    pub side: Option<OrderSide>,
+    /// Fills. Present on `FULL` responses.
+    #[serde(default)]
+    pub fills: Option<Vec<crate::models::Fill>>,
     /// Whether this is isolated margin.
     #[serde(default)]
     pub is_isolated: Option<bool>,

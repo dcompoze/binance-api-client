@@ -234,8 +234,10 @@ impl Credentials {
 
 impl std::fmt::Debug for Credentials {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        // The API key is a credential too, only a short prefix is shown.
+        let key_prefix: String = self.api_key.chars().take(4).collect();
         f.debug_struct("Credentials")
-            .field("api_key", &self.api_key)
+            .field("api_key", &format!("{}...", key_prefix))
             .field("signature_type", &self.signature_type)
             .field("secret_key", &"[REDACTED]")
             .finish()
@@ -275,21 +277,6 @@ pub fn get_timestamp() -> Result<u64> {
 pub fn get_timestamp_micros() -> Result<u64> {
     let duration = SystemTime::now().duration_since(UNIX_EPOCH)?;
     Ok(duration.as_micros() as u64)
-}
-
-/// Build a query string from key-value pairs.
-pub fn build_query_string<I, K, V>(params: I) -> String
-where
-    I: IntoIterator<Item = (K, V)>,
-    K: AsRef<str>,
-    V: AsRef<str>,
-{
-    params
-        .into_iter()
-        .filter(|(k, _)| !k.as_ref().is_empty())
-        .map(|(k, v)| format!("{}={}", k.as_ref(), v.as_ref()))
-        .collect::<Vec<_>>()
-        .join("&")
 }
 
 /// Build a signed query string with timestamp and signature.
@@ -380,7 +367,8 @@ mod tests {
     fn test_credentials_debug_redacts_secret() {
         let creds = Credentials::new("my_api_key", "my_secret_key");
         let debug_output = format!("{:?}", creds);
-        assert!(debug_output.contains("my_api_key"));
+        assert!(!debug_output.contains("my_api_key"));
+        assert!(debug_output.contains("my_a..."));
         assert!(debug_output.contains("[REDACTED]"));
         assert!(!debug_output.contains("my_secret_key"));
     }
@@ -404,20 +392,6 @@ mod tests {
     #[test]
     fn test_signature_type_default() {
         assert_eq!(SignatureType::default(), SignatureType::HmacSha256);
-    }
-
-    #[test]
-    fn test_build_query_string() {
-        let params = [("symbol", "BTCUSDT"), ("limit", "100")];
-        let query = build_query_string(params);
-        assert_eq!(query, "symbol=BTCUSDT&limit=100");
-    }
-
-    #[test]
-    fn test_build_query_string_empty_key_filtered() {
-        let params = [("symbol", "BTCUSDT"), ("", "ignored"), ("limit", "100")];
-        let query = build_query_string(params);
-        assert_eq!(query, "symbol=BTCUSDT&limit=100");
     }
 
     #[test]

@@ -186,7 +186,7 @@ async fn main() -> binance_api_client::Result<()> {
     println!("=== Recent Trade History ===\n");
     let trades = client
         .account()
-        .my_trades(symbol, None, None, None, Some(5))
+        .my_trades(symbol, None, None, None, None, Some(5))
         .await?;
 
     if trades.is_empty() {

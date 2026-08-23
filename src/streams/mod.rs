@@ -6,13 +6,12 @@
 //! - Auto-reconnection with exponential backoff
 //! - Depth cache management (local order book)
 //! - User data stream keep-alive
-//! - Connection health monitoring
 //!
 //! # Example
 //!
 //! ```rust,ignore
 //! use binance_api_client::{Binance, WebSocketClient};
-//! use futures::StreamExt;
+//! use futures_util::StreamExt;
 //!
 //! #[tokio::main]
 //! async fn main() -> binance_api_client::Result<()> {
@@ -36,8 +35,9 @@
 //! }
 //! ```
 
-use futures::{Future, SinkExt, Stream, StreamExt};
+use futures_util::{SinkExt, Stream, StreamExt};
 use std::collections::BTreeMap;
+use std::future::Future;
 use std::pin::Pin;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
@@ -71,8 +71,9 @@ const BASE_RECONNECT_DELAY_MS: u64 = 100;
 /// Timeout for WebSocket operations (in seconds).
 const WS_TIMEOUT_SECS: u64 = 30;
 
-/// Interval for health check pings (in seconds).
-const HEALTH_CHECK_INTERVAL_SECS: u64 = 30;
+/// Time without any inbound frame (including server pings, which arrive
+/// every 20 seconds) after which a connection is considered dead.
+const STALE_CONNECTION_SECS: u64 = 60;
 
 /// User data stream keepalive interval (in seconds).
 /// Should be less than 60 minutes (the listen key expiry time).
@@ -418,8 +419,27 @@ impl WebSocketConnection {
                 None => (None, value),
             };
 
-            // Skip control frame responses such as `{"result":null,"id":1}`.
+            // Book ticker and partial depth payloads carry no `e` field.
+            // Anything else without one is a control frame response such as
+            // `{"result":null,"id":1}` and is skipped.
             if payload.get("e").is_none() && !payload.is_array() {
+                if payload.get("lastUpdateId").is_some() && payload.get("bids").is_some() {
+                    return Some(
+                        serde_json::from_value(payload)
+                            .map(|event| (stream, WebSocketEvent::PartialDepth(event)))
+                            .map_err(Error::Serialization),
+                    );
+                }
+                if payload.get("u").is_some()
+                    && payload.get("b").is_some()
+                    && payload.get("A").is_some()
+                {
+                    return Some(
+                        serde_json::from_value(payload)
+                            .map(|event| (stream, WebSocketEvent::BookTicker(event)))
+                            .map_err(Error::Serialization),
+                    );
+                }
                 continue;
             }
 
@@ -531,10 +551,6 @@ pub struct ReconnectConfig {
     pub max_reconnect_delay: Duration,
     /// Base delay for exponential backoff.
     pub base_delay: Duration,
-    /// Whether to enable health check pings.
-    pub health_check_enabled: bool,
-    /// Interval for health check pings.
-    pub health_check_interval: Duration,
 }
 
 impl Default for ReconnectConfig {
@@ -543,8 +559,6 @@ impl Default for ReconnectConfig {
             max_reconnects: MAX_RECONNECTS,
             max_reconnect_delay: Duration::from_secs(MAX_RECONNECT_DELAY_SECS),
             base_delay: Duration::from_millis(BASE_RECONNECT_DELAY_MS),
-            health_check_enabled: true,
-            health_check_interval: Duration::from_secs(HEALTH_CHECK_INTERVAL_SECS),
         }
     }
 }
@@ -638,7 +652,14 @@ impl ReconnectingWebSocket {
                         Ok(Some(event)) => Some(event),
                         Ok(None) => None, // Connection closed
                         Err(_) => {
-                            // Timeout - connection might be stale
+                            // No data for a while. The server pings every 20
+                            // seconds, so the connection is only stale when
+                            // pings stopped too.
+                            if conn.time_since_last_ping()
+                                < Duration::from_secs(STALE_CONNECTION_SECS)
+                            {
+                                continue;
+                            }
                             None
                         }
                     }
@@ -656,7 +677,10 @@ impl ReconnectingWebSocket {
                 }
                 Some(Err(e)) => {
                     // Send error and attempt reconnect
-                    let _ = event_tx.send(Err(e)).await;
+                    if event_tx.send(Err(e)).await.is_err() {
+                        // Receiver dropped, exit
+                        break;
+                    }
                     Self::attempt_reconnect(
                         &url,
                         &config,
@@ -770,6 +794,13 @@ impl ReconnectingWebSocket {
     }
 }
 
+impl Drop for ReconnectingWebSocket {
+    fn drop(&mut self) {
+        // Signal the background task to stop reconnecting.
+        self.is_closed.store(true, Ordering::SeqCst);
+    }
+}
+
 // Simple pseudo-random number generator for jitter.
 fn rand_simple() -> f64 {
     use std::time::SystemTime;
@@ -798,6 +829,17 @@ pub struct DepthCache {
     pub last_update_id: u64,
     /// Last update time.
     pub update_time: Option<u64>,
+}
+
+/// Result of applying a depth update event to a `DepthCache`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum DepthUpdateResult {
+    /// The update was applied.
+    Applied,
+    /// The update was older than the cache and skipped.
+    Ignored,
+    /// A sequence gap was detected, the cache must be re-synchronized.
+    Gap,
 }
 
 /// Wrapper for f64 that implements Ord for use in BTreeMap.
@@ -853,18 +895,15 @@ impl DepthCache {
     }
 
     /// Apply a depth update event to the cache.
-    ///
-    /// Returns `true` if the update was applied, `false` if it was skipped
-    /// (e.g., due to sequence issues).
-    pub fn apply_update(&mut self, event: &DepthEvent) -> bool {
-        // Skip if update is older than our snapshot
+    pub fn apply_update(&mut self, event: &DepthEvent) -> DepthUpdateResult {
+        // An update fully covered by the snapshot is ignored.
         if event.final_update_id <= self.last_update_id {
-            return false;
+            return DepthUpdateResult::Ignored;
         }
 
-        // Check for sequence gap - would need to reinitialize
+        // A sequence gap requires re-synchronization.
         if event.first_update_id > self.last_update_id + 1 {
-            return false;
+            return DepthUpdateResult::Gap;
         }
 
         // Apply bid updates
@@ -888,7 +927,7 @@ impl DepthCache {
         self.last_update_id = event.final_update_id;
         self.update_time = Some(event.event_time);
 
-        true
+        DepthUpdateResult::Applied
     }
 
     /// Get the best bid (highest bid price and quantity).
@@ -1104,98 +1143,139 @@ impl DepthCacheManager {
                 }
             };
 
-            // Buffer some initial events
-            let mut initial_events = Vec::new();
-            let buffer_timeout = Duration::from_secs(2);
-            let start = Instant::now();
-
-            while start.elapsed() < buffer_timeout {
-                match timeout(Duration::from_millis(500), conn.next_raw()).await {
-                    Ok(Some(Ok(raw))) => {
-                        if let Ok(event) = serde_json::from_value::<DepthEvent>(raw) {
-                            initial_events.push(event);
-                        }
+            // Read the first depth event so the snapshot can be validated
+            // against it, as required by the documented sync procedure.
+            let first_event =
+                match timeout(Duration::from_secs(WS_TIMEOUT_SECS), conn.next_raw()).await {
+                    Ok(Some(Ok(raw))) => match serde_json::from_value::<DepthEvent>(raw) {
+                        Ok(event) => event,
+                        Err(_) => continue,
+                    },
+                    _ => {
+                        sleep(Duration::from_secs(1)).await;
+                        continue;
                     }
-                    _ => break,
-                }
-            }
+                };
+            let mut buffered = vec![first_event];
 
-            // Fetch snapshot
-            let snapshot = match client
-                .market()
-                .depth(&symbol, Some(config.depth_limit as u16))
-                .await
-            {
-                Ok(s) => s,
-                Err(_) => {
-                    sleep(Duration::from_secs(1)).await;
-                    continue;
+            // Fetch a snapshot at least as new as the first buffered event.
+            // Events are buffered while the request is in flight so none are
+            // lost between the stream and the snapshot.
+            let snapshot = loop {
+                if is_stopped.load(Ordering::SeqCst) {
+                    break None;
+                }
+                let market = client.market();
+                let snapshot_request = market.depth(&symbol, Some(config.depth_limit as u16));
+                tokio::pin!(snapshot_request);
+                let result = loop {
+                    tokio::select! {
+                        result = &mut snapshot_request => break Some(result),
+                        event = conn.next_raw() => match event {
+                            Some(Ok(raw)) => {
+                                if let Ok(event) = serde_json::from_value::<DepthEvent>(raw) {
+                                    buffered.push(event);
+                                }
+                            }
+                            Some(Err(_)) | None => break None,
+                        },
+                    }
+                };
+                match result {
+                    Some(Ok(s)) if s.last_update_id >= buffered[0].first_update_id => {
+                        break Some(s);
+                    }
+                    // The snapshot predates the buffer, fetch a newer one.
+                    Some(Ok(_)) => continue,
+                    Some(Err(_)) => sleep(Duration::from_secs(1)).await,
+                    // The connection dropped while fetching.
+                    None => break None,
                 }
             };
+            let Some(snapshot) = snapshot else {
+                sleep(Duration::from_millis(100)).await;
+                continue;
+            };
 
-            // Initialize cache from snapshot
-            {
+            // Initialize the cache and replay the buffered events.
+            let initial_cache = {
                 let mut cache_guard = cache.write().await;
                 cache_guard.initialize_from_snapshot(&snapshot);
-
-                // Apply buffered events
-                for event in &initial_events {
-                    cache_guard.apply_update(event);
+                let mut ok = true;
+                for event in &buffered {
+                    if cache_guard.apply_update(event) == DepthUpdateResult::Gap {
+                        ok = false;
+                        break;
+                    }
                 }
-            }
+                ok.then(|| cache_guard.clone())
+            };
+            let Some(initial_cache) = initial_cache else {
+                *state.write().await = DepthCacheState::OutOfSync;
+                sleep(Duration::from_millis(100)).await;
+                continue;
+            };
 
             *state.write().await = DepthCacheState::Synced;
-
-            // Send initial cache state
-            {
-                let cache_guard = cache.read().await;
-                let _ = cache_tx.send(cache_guard.clone()).await;
+            if cache_tx.send(initial_cache).await.is_err() {
+                // Receiver dropped, stop the manager.
+                break;
             }
 
-            // Main update loop
-            let mut last_refresh = Instant::now();
-            loop {
+            // Main update loop.
+            let mut resync = false;
+            let last_refresh = Instant::now();
+            while !resync {
                 if is_stopped.load(Ordering::SeqCst) {
                     break;
                 }
 
-                // Check if we need to refresh
+                // A configured refresh interval triggers a full resync.
                 if let Some(refresh_interval) = config.refresh_interval {
                     if last_refresh.elapsed() >= refresh_interval {
-                        // Re-fetch snapshot
-                        if let Ok(snapshot) = client
-                            .market()
-                            .depth(&symbol, Some(config.depth_limit as u16))
-                            .await
-                        {
-                            let mut cache_guard = cache.write().await;
-                            cache_guard.initialize_from_snapshot(&snapshot);
-                        }
-                        last_refresh = Instant::now();
+                        break;
                     }
                 }
 
                 match timeout(Duration::from_secs(WS_TIMEOUT_SECS), conn.next_raw()).await {
                     Ok(Some(Ok(raw))) => {
                         if let Ok(event) = serde_json::from_value::<DepthEvent>(raw) {
-                            let mut cache_guard = cache.write().await;
-                            if cache_guard.apply_update(&event) {
-                                // Successfully applied, send updated cache
-                                let _ = cache_tx.send(cache_guard.clone()).await;
-                            } else {
-                                // Update failed (sequence gap), need to reinitialize
-                                drop(cache_guard);
-                                *state.write().await = DepthCacheState::OutOfSync;
-                                break;
+                            let updated = {
+                                let mut cache_guard = cache.write().await;
+                                match cache_guard.apply_update(&event) {
+                                    DepthUpdateResult::Applied => Some(cache_guard.clone()),
+                                    DepthUpdateResult::Ignored => None,
+                                    DepthUpdateResult::Gap => {
+                                        resync = true;
+                                        None
+                                    }
+                                }
+                            };
+                            if let Some(updated) = updated {
+                                if cache_tx.send(updated).await.is_err() {
+                                    is_stopped.store(true, Ordering::SeqCst);
+                                    break;
+                                }
                             }
                         }
                     }
-                    Ok(Some(Err(_))) | Ok(None) | Err(_) => {
-                        // Connection error or timeout, reconnect
-                        *state.write().await = DepthCacheState::OutOfSync;
-                        break;
+                    Ok(Some(Err(_))) | Ok(None) => {
+                        // Connection closed or errored.
+                        resync = true;
+                    }
+                    Err(_) => {
+                        // No data for a while. The server pings every 20
+                        // seconds, so only reconnect when pings stopped too.
+                        if conn.time_since_last_ping() > Duration::from_secs(STALE_CONNECTION_SECS)
+                        {
+                            resync = true;
+                        }
                     }
                 }
+            }
+
+            if resync {
+                *state.write().await = DepthCacheState::OutOfSync;
             }
 
             // Brief delay before reconnecting
@@ -1215,13 +1295,11 @@ impl DepthCacheManager {
             match state {
                 DepthCacheState::Synced => return Ok(()),
                 DepthCacheState::Stopped => {
-                    return Err(Error::InvalidCredentials(
-                        "Depth cache manager stopped".to_string(),
-                    ));
+                    return Err(Error::Stream("Depth cache manager stopped".to_string()));
                 }
                 _ => {
                     if start.elapsed() > timeout_duration {
-                        return Err(Error::InvalidCredentials(
+                        return Err(Error::Stream(
                             "Timeout waiting for depth cache sync".to_string(),
                         ));
                     }
@@ -1254,6 +1332,13 @@ impl DepthCacheManager {
     /// Get the symbol being tracked.
     pub fn symbol(&self) -> &str {
         &self.symbol
+    }
+}
+
+impl Drop for DepthCacheManager {
+    fn drop(&mut self) {
+        // Signal the background sync task to stop.
+        self.is_stopped.store(true, Ordering::SeqCst);
     }
 }
 
@@ -1437,67 +1522,6 @@ impl UserDataStreamManager {
     }
 }
 
-// Connection health monitor.
-
-/// Monitors WebSocket connection health with periodic pings.
-///
-/// This can be used to detect stale connections that are not receiving
-/// any messages (including pings from the server).
-pub struct ConnectionHealthMonitor {
-    last_activity: Arc<RwLock<Instant>>,
-    is_healthy: Arc<AtomicBool>,
-    max_idle_duration: Duration,
-}
-
-impl ConnectionHealthMonitor {
-    /// Create a new connection health monitor.
-    ///
-    /// # Arguments
-    ///
-    /// * `max_idle_duration` - Maximum time without activity before considering unhealthy.
-    pub fn new(max_idle_duration: Duration) -> Self {
-        Self {
-            last_activity: Arc::new(RwLock::new(Instant::now())),
-            is_healthy: Arc::new(AtomicBool::new(true)),
-            max_idle_duration,
-        }
-    }
-
-    /// Record activity on the connection.
-    pub async fn record_activity(&self) {
-        *self.last_activity.write().await = Instant::now();
-        self.is_healthy.store(true, Ordering::SeqCst);
-    }
-
-    /// Check if the connection is healthy.
-    pub async fn is_healthy(&self) -> bool {
-        let last = *self.last_activity.read().await;
-        let healthy = last.elapsed() < self.max_idle_duration;
-        self.is_healthy.store(healthy, Ordering::SeqCst);
-        healthy
-    }
-
-    /// Get the time since last activity.
-    pub async fn time_since_last_activity(&self) -> Duration {
-        self.last_activity.read().await.elapsed()
-    }
-
-    /// Start a background health check task that updates is_healthy periodically.
-    pub fn start_background_check(
-        self: Arc<Self>,
-        check_interval: Duration,
-    ) -> tokio::task::JoinHandle<()> {
-        let monitor = self;
-        tokio::spawn(async move {
-            let mut interval_timer = interval(check_interval);
-            loop {
-                interval_timer.tick().await;
-                monitor.is_healthy().await;
-            }
-        })
-    }
-}
-
 // Tests.
 
 #[cfg(test)]
@@ -1562,7 +1586,6 @@ mod tests {
             config.max_reconnect_delay,
             Duration::from_secs(MAX_RECONNECT_DELAY_SECS)
         );
-        assert!(config.health_check_enabled);
     }
 
     #[test]

@@ -218,6 +218,9 @@ impl Margin {
     ///     .await?;
     /// println!("Transfer ID: {}", result.tran_id);
     /// ```
+    #[deprecated(
+        note = "`POST /sapi/v1/margin/transfer` was discontinued by Binance. Use `Wallet::universal_transfer` instead."
+    )]
     pub async fn transfer(
         &self,
         asset: &str,
@@ -267,6 +270,9 @@ impl Margin {
     ///     )
     ///     .await?;
     /// ```
+    #[deprecated(
+        note = "`POST /sapi/v1/margin/isolated/transfer` was discontinued by Binance. Use `Wallet::universal_transfer` instead."
+    )]
     pub async fn isolated_transfer(
         &self,
         asset: &str,
@@ -300,22 +306,6 @@ impl Margin {
 
     // Borrow/Repay.
 
-    /// Apply for a margin loan.
-    ///
-    /// # Arguments
-    ///
-    /// * `asset` - Asset to borrow
-    /// * `amount` - Amount to borrow
-    /// * `is_isolated` - Whether this is isolated margin
-    /// * `symbol` - Symbol for isolated margin (required if is_isolated is true)
-    ///
-    /// # Example
-    ///
-    /// ```rust,ignore
-    /// // Borrow 0.1 BTC on cross margin
-    /// let result = client.margin().loan("BTC", "0.1", false, None).await?;
-    /// println!("Loan transaction ID: {}", result.tran_id);
-    /// ```
     /// Borrow or repay margin funds using `POST /sapi/v1/margin/borrow-repay`.
     ///
     /// # Arguments
@@ -405,6 +395,7 @@ impl Margin {
             .await
     }
 
+    /// Apply for a margin loan.
     #[deprecated(
         note = "`POST /sapi/v1/margin/loan` is deprecated by Binance. Use `borrow_repay` instead."
     )]
@@ -624,7 +615,7 @@ impl Margin {
     ) -> Result<MarginOrderResult> {
         let mut params: Vec<(&str, String)> = vec![
             ("symbol", symbol.to_string()),
-            ("side", format!("{:?}", side).to_uppercase()),
+            ("side", side.to_string()),
             ("type", order_type.to_string()),
         ];
 
@@ -641,7 +632,7 @@ impl Margin {
             params.push(("stopPrice", sp.to_string()));
         }
         if let Some(tif) = time_in_force {
-            params.push(("timeInForce", format!("{:?}", tif).to_uppercase()));
+            params.push(("timeInForce", tif.to_string()));
         }
         if let Some(id) = new_client_order_id {
             params.push(("newClientOrderId", id.to_string()));

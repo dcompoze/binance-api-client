@@ -61,8 +61,8 @@ fn test_parse_trade_event() {
             assert_eq!(trade.trade_id, 12345);
             assert_eq!(trade.price, 50000.0);
             assert_eq!(trade.quantity, 0.01);
-            assert_eq!(trade.buyer_order_id, 88);
-            assert_eq!(trade.seller_order_id, 50);
+            assert_eq!(trade.buyer_order_id, Some(88));
+            assert_eq!(trade.seller_order_id, Some(50));
             assert!(trade.is_buyer_maker);
         }
         _ => panic!("Expected Trade event"),

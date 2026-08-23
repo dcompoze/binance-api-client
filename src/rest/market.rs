@@ -431,6 +431,16 @@ impl Market {
         self.client.get(API_V3_AVG_PRICE, Some(&query)).await
     }
 
+    /// Get 24hr ticker price change statistics, filtered by symbol status.
+    pub async fn ticker_24h_with_symbol_status(
+        &self,
+        symbol: &str,
+        symbol_status: SymbolStatus,
+    ) -> Result<Ticker24h> {
+        let query = format!("symbol={}&symbolStatus={}", symbol, symbol_status);
+        self.client.get(API_V3_TICKER_24HR, Some(&query)).await
+    }
+
     /// Get 24hr ticker price change statistics.
     ///
     /// # Arguments
@@ -444,15 +454,6 @@ impl Market {
     /// let ticker = client.market().ticker_24h("BTCUSDT").await?;
     /// println!("Price change: {}%", ticker.price_change_percent);
     /// ```
-    pub async fn ticker_24h_with_symbol_status(
-        &self,
-        symbol: &str,
-        symbol_status: SymbolStatus,
-    ) -> Result<Ticker24h> {
-        let query = format!("symbol={}&symbolStatus={}", symbol, symbol_status);
-        self.client.get(API_V3_TICKER_24HR, Some(&query)).await
-    }
-
     pub async fn ticker_24h(&self, symbol: &str) -> Result<Ticker24h> {
         let query = format!("symbol={}", symbol);
         self.client.get(API_V3_TICKER_24HR, Some(&query)).await
@@ -530,8 +531,7 @@ impl Market {
         symbol_status: Option<SymbolStatus>,
     ) -> Result<Vec<TradingDayTicker>> {
         let symbols_json = serde_json::to_string(symbols).unwrap_or_default();
-        let mut params: Vec<(&str, String)> =
-            vec![("symbols", urlencoding::encode(&symbols_json).into_owned())];
+        let mut params: Vec<(&str, String)> = vec![("symbols", symbols_json)];
 
         if let Some(tz) = time_zone {
             params.push(("timeZone", tz.to_string()));
@@ -554,8 +554,7 @@ impl Market {
         symbol_status: Option<SymbolStatus>,
     ) -> Result<Vec<TradingDayTickerMini>> {
         let symbols_json = serde_json::to_string(symbols).unwrap_or_default();
-        let mut params: Vec<(&str, String)> =
-            vec![("symbols", urlencoding::encode(&symbols_json).into_owned())];
+        let mut params: Vec<(&str, String)> = vec![("symbols", symbols_json)];
 
         params.push(("type", TickerType::Mini.to_string()));
 
@@ -632,8 +631,7 @@ impl Market {
         symbol_status: Option<SymbolStatus>,
     ) -> Result<Vec<RollingWindowTicker>> {
         let symbols_json = serde_json::to_string(symbols).unwrap_or_default();
-        let mut params: Vec<(&str, String)> =
-            vec![("symbols", urlencoding::encode(&symbols_json).into_owned())];
+        let mut params: Vec<(&str, String)> = vec![("symbols", symbols_json)];
 
         if let Some(window) = window_size {
             params.push(("windowSize", window.to_string()));
@@ -656,8 +654,7 @@ impl Market {
         symbol_status: Option<SymbolStatus>,
     ) -> Result<Vec<RollingWindowTickerMini>> {
         let symbols_json = serde_json::to_string(symbols).unwrap_or_default();
-        let mut params: Vec<(&str, String)> =
-            vec![("symbols", urlencoding::encode(&symbols_json).into_owned())];
+        let mut params: Vec<(&str, String)> = vec![("symbols", symbols_json)];
 
         params.push(("type", TickerType::Mini.to_string()));
 
@@ -674,6 +671,16 @@ impl Market {
             .await
     }
 
+    /// Get latest price for a symbol, filtered by symbol status.
+    pub async fn price_with_symbol_status(
+        &self,
+        symbol: &str,
+        symbol_status: SymbolStatus,
+    ) -> Result<TickerPrice> {
+        let query = format!("symbol={}&symbolStatus={}", symbol, symbol_status);
+        self.client.get(API_V3_TICKER_PRICE, Some(&query)).await
+    }
+
     /// Get latest price for a symbol.
     ///
     /// # Arguments
@@ -687,15 +694,6 @@ impl Market {
     /// let price = client.market().price("BTCUSDT").await?;
     /// println!("BTC/USDT: {}", price.price);
     /// ```
-    pub async fn price_with_symbol_status(
-        &self,
-        symbol: &str,
-        symbol_status: SymbolStatus,
-    ) -> Result<TickerPrice> {
-        let query = format!("symbol={}&symbolStatus={}", symbol, symbol_status);
-        self.client.get(API_V3_TICKER_PRICE, Some(&query)).await
-    }
-
     pub async fn price(&self, symbol: &str) -> Result<TickerPrice> {
         let query = format!("symbol={}", symbol);
         self.client.get(API_V3_TICKER_PRICE, Some(&query)).await
@@ -734,6 +732,18 @@ impl Market {
         self.client.get(API_V3_TICKER_PRICE, Some(&query)).await
     }
 
+    /// Get best price/qty on the order book for a symbol, filtered by symbol status.
+    pub async fn book_ticker_with_symbol_status(
+        &self,
+        symbol: &str,
+        symbol_status: SymbolStatus,
+    ) -> Result<BookTicker> {
+        let query = format!("symbol={}&symbolStatus={}", symbol, symbol_status);
+        self.client
+            .get(API_V3_TICKER_BOOK_TICKER, Some(&query))
+            .await
+    }
+
     /// Get best price/qty on the order book for a symbol.
     ///
     /// # Arguments
@@ -748,17 +758,6 @@ impl Market {
     /// println!("Best bid: {} @ {}", ticker.bid_qty, ticker.bid_price);
     /// println!("Best ask: {} @ {}", ticker.ask_qty, ticker.ask_price);
     /// ```
-    pub async fn book_ticker_with_symbol_status(
-        &self,
-        symbol: &str,
-        symbol_status: SymbolStatus,
-    ) -> Result<BookTicker> {
-        let query = format!("symbol={}&symbolStatus={}", symbol, symbol_status);
-        self.client
-            .get(API_V3_TICKER_BOOK_TICKER, Some(&query))
-            .await
-    }
-
     pub async fn book_ticker(&self, symbol: &str) -> Result<BookTicker> {
         let query = format!("symbol={}", symbol);
         self.client
@@ -809,19 +808,21 @@ fn parse_value_as_f64(value: &Value) -> f64 {
 }
 
 fn parse_klines(raw: Vec<Vec<Value>>) -> Vec<Kline> {
+    let f64_at = |row: &[Value], i: usize| row.get(i).map(parse_value_as_f64).unwrap_or_default();
+    let i64_at = |row: &[Value], i: usize| row.get(i).and_then(Value::as_i64).unwrap_or_default();
     raw.into_iter()
         .map(|row| Kline {
-            open_time: row[0].as_i64().unwrap_or_default(),
-            open: parse_value_as_f64(&row[1]),
-            high: parse_value_as_f64(&row[2]),
-            low: parse_value_as_f64(&row[3]),
-            close: parse_value_as_f64(&row[4]),
-            volume: parse_value_as_f64(&row[5]),
-            close_time: row[6].as_i64().unwrap_or_default(),
-            quote_asset_volume: parse_value_as_f64(&row[7]),
-            number_of_trades: row[8].as_i64().unwrap_or_default(),
-            taker_buy_base_asset_volume: parse_value_as_f64(&row[9]),
-            taker_buy_quote_asset_volume: parse_value_as_f64(&row[10]),
+            open_time: i64_at(&row, 0),
+            open: f64_at(&row, 1),
+            high: f64_at(&row, 2),
+            low: f64_at(&row, 3),
+            close: f64_at(&row, 4),
+            volume: f64_at(&row, 5),
+            close_time: i64_at(&row, 6),
+            quote_asset_volume: f64_at(&row, 7),
+            number_of_trades: i64_at(&row, 8),
+            taker_buy_base_asset_volume: f64_at(&row, 9),
+            taker_buy_quote_asset_volume: f64_at(&row, 10),
         })
         .collect()
 }

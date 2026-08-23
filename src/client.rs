@@ -139,7 +139,45 @@ impl Client {
         Ok(())
     }
 
-    fn record_rate_limit_headers(&self, headers: &HeaderMap) {
+    /// Build a signed request URL, checking credentials and SAPI availability.
+    fn build_signed_url(&self, endpoint: &str, params: &[(&str, &str)]) -> Result<String> {
+        let credentials = self
+            .credentials
+            .as_ref()
+            .ok_or(Error::AuthenticationRequired)?;
+
+        self.check_sapi_supported(endpoint)?;
+
+        let query = build_signed_query_string_with(
+            params.iter().copied(),
+            credentials,
+            self.config.recv_window,
+            self.time_offset.load(Ordering::Relaxed),
+            self.config.microsecond_timestamps,
+        )?;
+
+        Ok(format!(
+            "{}{}?{}",
+            self.config.rest_api_endpoint, endpoint, query
+        ))
+    }
+
+    /// Build a full URL from an endpoint and unsigned key-value parameters.
+    /// Parameter values are percent-encoded.
+    fn build_url(&self, endpoint: &str, params: &[(&str, &str)]) -> String {
+        if params.is_empty() {
+            format!("{}{}", self.config.rest_api_endpoint, endpoint)
+        } else {
+            let query = params
+                .iter()
+                .map(|(k, v)| format!("{}={}", k, urlencoding::encode(v)))
+                .collect::<Vec<_>>()
+                .join("&");
+            format!("{}{}?{}", self.config.rest_api_endpoint, endpoint, query)
+        }
+    }
+
+    pub(crate) fn record_rate_limit_headers(&self, headers: &HeaderMap) {
         let mut usage = self.rate_limit_usage.lock().unwrap();
         for (name, value) in headers {
             let name = name.as_str();
@@ -168,19 +206,9 @@ impl Client {
         endpoint: &str,
         params: &[(&str, &str)],
     ) -> Result<T> {
-        let query = if params.is_empty() {
-            None
-        } else {
-            Some(
-                params
-                    .iter()
-                    .map(|(k, v)| format!("{}={}", k, v))
-                    .collect::<Vec<_>>()
-                    .join("&"),
-            )
-        };
-
-        self.get(endpoint, query.as_deref()).await
+        let url = self.build_url(endpoint, params);
+        let response = self.http_retry.get(&url).send().await?;
+        self.handle_response(response).await
     }
 
     /// Make a GET request with API key but no signature.
@@ -192,11 +220,6 @@ impl Client {
         endpoint: &str,
         query: Option<&str>,
     ) -> Result<T> {
-        let credentials = self
-            .credentials
-            .as_ref()
-            .ok_or(Error::AuthenticationRequired)?;
-
         let url = match query {
             Some(q) => format!("{}{}?{}", self.config.rest_api_endpoint, endpoint, q),
             None => format!("{}{}", self.config.rest_api_endpoint, endpoint),
@@ -205,7 +228,7 @@ impl Client {
         let response = self
             .http_retry
             .get(&url)
-            .headers(self.build_auth_headers(credentials)?)
+            .headers(self.build_auth_headers()?)
             .send()
             .await?;
 
@@ -218,26 +241,12 @@ impl Client {
         endpoint: &str,
         params: &[(&str, &str)],
     ) -> Result<T> {
-        let credentials = self
-            .credentials
-            .as_ref()
-            .ok_or(Error::AuthenticationRequired)?;
-
-        let query = build_signed_query_string_with(
-            params.iter().copied(),
-            credentials,
-            self.config.recv_window,
-            self.time_offset.load(Ordering::Relaxed),
-            self.config.microsecond_timestamps,
-        )?;
-        self.check_sapi_supported(endpoint)?;
-
-        let url = format!("{}{}?{}", self.config.rest_api_endpoint, endpoint, query);
+        let url = self.build_signed_url(endpoint, params)?;
 
         let response = self
             .http_retry
             .get(&url)
-            .headers(self.build_auth_headers(credentials)?)
+            .headers(self.build_auth_headers()?)
             .send()
             .await?;
 
@@ -250,26 +259,12 @@ impl Client {
         endpoint: &str,
         params: &[(&str, &str)],
     ) -> Result<T> {
-        let credentials = self
-            .credentials
-            .as_ref()
-            .ok_or(Error::AuthenticationRequired)?;
-
-        let query = build_signed_query_string_with(
-            params.iter().copied(),
-            credentials,
-            self.config.recv_window,
-            self.time_offset.load(Ordering::Relaxed),
-            self.config.microsecond_timestamps,
-        )?;
-        self.check_sapi_supported(endpoint)?;
-
-        let url = format!("{}{}?{}", self.config.rest_api_endpoint, endpoint, query);
+        let url = self.build_signed_url(endpoint, params)?;
 
         let response = self
             .http
             .post(&url)
-            .headers(self.build_auth_headers_with_content_type(credentials)?)
+            .headers(self.build_auth_headers_with_content_type()?)
             .send()
             .await?;
 
@@ -282,26 +277,12 @@ impl Client {
         endpoint: &str,
         params: &[(&str, &str)],
     ) -> Result<reqwest::Response> {
-        let credentials = self
-            .credentials
-            .as_ref()
-            .ok_or(Error::AuthenticationRequired)?;
-
-        let query = build_signed_query_string_with(
-            params.iter().copied(),
-            credentials,
-            self.config.recv_window,
-            self.time_offset.load(Ordering::Relaxed),
-            self.config.microsecond_timestamps,
-        )?;
-        self.check_sapi_supported(endpoint)?;
-
-        let url = format!("{}{}?{}", self.config.rest_api_endpoint, endpoint, query);
+        let url = self.build_signed_url(endpoint, params)?;
 
         let response = self
             .http
             .post(&url)
-            .headers(self.build_auth_headers_with_content_type(credentials)?)
+            .headers(self.build_auth_headers_with_content_type()?)
             .send()
             .await?;
 
@@ -314,26 +295,12 @@ impl Client {
         endpoint: &str,
         params: &[(&str, &str)],
     ) -> Result<T> {
-        let credentials = self
-            .credentials
-            .as_ref()
-            .ok_or(Error::AuthenticationRequired)?;
-
-        let query = build_signed_query_string_with(
-            params.iter().copied(),
-            credentials,
-            self.config.recv_window,
-            self.time_offset.load(Ordering::Relaxed),
-            self.config.microsecond_timestamps,
-        )?;
-        self.check_sapi_supported(endpoint)?;
-
-        let url = format!("{}{}?{}", self.config.rest_api_endpoint, endpoint, query);
+        let url = self.build_signed_url(endpoint, params)?;
 
         let response = self
             .http
             .delete(&url)
-            .headers(self.build_auth_headers_with_content_type(credentials)?)
+            .headers(self.build_auth_headers_with_content_type()?)
             .send()
             .await?;
 
@@ -346,26 +313,12 @@ impl Client {
         endpoint: &str,
         params: &[(&str, &str)],
     ) -> Result<T> {
-        let credentials = self
-            .credentials
-            .as_ref()
-            .ok_or(Error::AuthenticationRequired)?;
-
-        let query = build_signed_query_string_with(
-            params.iter().copied(),
-            credentials,
-            self.config.recv_window,
-            self.time_offset.load(Ordering::Relaxed),
-            self.config.microsecond_timestamps,
-        )?;
-        self.check_sapi_supported(endpoint)?;
-
-        let url = format!("{}{}?{}", self.config.rest_api_endpoint, endpoint, query);
+        let url = self.build_signed_url(endpoint, params)?;
 
         let response = self
             .http
             .put(&url)
-            .headers(self.build_auth_headers_with_content_type(credentials)?)
+            .headers(self.build_auth_headers_with_content_type()?)
             .send()
             .await?;
 
@@ -378,26 +331,12 @@ impl Client {
         endpoint: &str,
         params: &[(&str, &str)],
     ) -> Result<T> {
-        let credentials = self
-            .credentials
-            .as_ref()
-            .ok_or(Error::AuthenticationRequired)?;
-
-        let url = if params.is_empty() {
-            format!("{}{}", self.config.rest_api_endpoint, endpoint)
-        } else {
-            let query = params
-                .iter()
-                .map(|(k, v)| format!("{}={}", k, v))
-                .collect::<Vec<_>>()
-                .join("&");
-            format!("{}{}?{}", self.config.rest_api_endpoint, endpoint, query)
-        };
+        let url = self.build_url(endpoint, params);
 
         let response = self
             .http
             .post(&url)
-            .headers(self.build_auth_headers(credentials)?)
+            .headers(self.build_auth_headers()?)
             .send()
             .await?;
 
@@ -410,26 +349,12 @@ impl Client {
         endpoint: &str,
         params: &[(&str, &str)],
     ) -> Result<T> {
-        let credentials = self
-            .credentials
-            .as_ref()
-            .ok_or(Error::AuthenticationRequired)?;
-
-        let url = if params.is_empty() {
-            format!("{}{}", self.config.rest_api_endpoint, endpoint)
-        } else {
-            let query = params
-                .iter()
-                .map(|(k, v)| format!("{}={}", k, v))
-                .collect::<Vec<_>>()
-                .join("&");
-            format!("{}{}?{}", self.config.rest_api_endpoint, endpoint, query)
-        };
+        let url = self.build_url(endpoint, params);
 
         let response = self
             .http
             .put(&url)
-            .headers(self.build_auth_headers(credentials)?)
+            .headers(self.build_auth_headers()?)
             .send()
             .await?;
 
@@ -442,33 +367,24 @@ impl Client {
         endpoint: &str,
         params: &[(&str, &str)],
     ) -> Result<T> {
-        let credentials = self
-            .credentials
-            .as_ref()
-            .ok_or(Error::AuthenticationRequired)?;
-
-        let url = if params.is_empty() {
-            format!("{}{}", self.config.rest_api_endpoint, endpoint)
-        } else {
-            let query = params
-                .iter()
-                .map(|(k, v)| format!("{}={}", k, v))
-                .collect::<Vec<_>>()
-                .join("&");
-            format!("{}{}?{}", self.config.rest_api_endpoint, endpoint, query)
-        };
+        let url = self.build_url(endpoint, params);
 
         let response = self
             .http
             .delete(&url)
-            .headers(self.build_auth_headers(credentials)?)
+            .headers(self.build_auth_headers()?)
             .send()
             .await?;
 
         self.handle_response(response).await
     }
 
-    fn build_auth_headers(&self, credentials: &Credentials) -> Result<HeaderMap> {
+    fn build_auth_headers(&self) -> Result<HeaderMap> {
+        let credentials = self
+            .credentials
+            .as_ref()
+            .ok_or(Error::AuthenticationRequired)?;
+
         let mut headers = HeaderMap::new();
         headers.insert(
             USER_AGENT,
@@ -487,8 +403,8 @@ impl Client {
         Ok(headers)
     }
 
-    fn build_auth_headers_with_content_type(&self, credentials: &Credentials) -> Result<HeaderMap> {
-        let mut headers = self.build_auth_headers(credentials)?;
+    fn build_auth_headers_with_content_type(&self) -> Result<HeaderMap> {
+        let mut headers = self.build_auth_headers()?;
         headers.insert(
             CONTENT_TYPE,
             HeaderValue::from_static("application/x-www-form-urlencoded"),
@@ -497,11 +413,19 @@ impl Client {
     }
 
     async fn handle_response<T: DeserializeOwned>(&self, response: reqwest::Response) -> Result<T> {
-        self.record_rate_limit_headers(response.headers());
-        let status = response.status();
-        if status == StatusCode::OK {
+        if response.status() == StatusCode::OK {
+            self.record_rate_limit_headers(response.headers());
             return Ok(response.json().await?);
         }
+        Err(self.error_from_response(response).await)
+    }
+
+    /// Convert a non-OK response into an `Error`.
+    ///
+    /// Also records rate limit headers from the response.
+    pub(crate) async fn error_from_response(&self, response: reqwest::Response) -> Error {
+        self.record_rate_limit_headers(response.headers());
+        let status = response.status();
 
         let retry_after = response
             .headers()
@@ -519,24 +443,24 @@ impl Client {
                 Some(e) => (e.code, e.msg),
                 None => (status.as_u16() as i32, body),
             };
-            return Err(Error::RateLimited {
+            return Error::RateLimited {
                 code,
                 message,
                 retry_after,
                 ip_banned: status == StatusCode::IM_A_TEAPOT,
-            });
+            };
         }
 
         match api_error {
-            Some(error) => Err(Error::from_binance_error(error)),
-            None => Err(Error::Api {
+            Some(error) => Error::from_binance_error(error),
+            None => Error::Api {
                 code: status.as_u16() as i32,
                 message: if body.is_empty() {
                     format!("Unexpected status code: {}", status)
                 } else {
                     body
                 },
-            }),
+            },
         }
     }
 }

@@ -92,11 +92,10 @@ checksum = "2af50177e190e07a26ab74f8b1efbfe2ef87da2116221318cb1c2e82baf7de06"
 
 [[package]]
 name = "binance-api-client"
-version = "0.2.1"
+version = "1.0.0"
 dependencies = [
  "base64 0.23.1",
  "dotenv",
- "futures",
  "futures-util",
  "hex",
  "rand 0.8.5",
@@ -113,7 +112,6 @@ dependencies = [
  "sha2",
  "thiserror 2.0.17",
  "tokio",
- "tokio-stream",
  "tokio-test",
  "tokio-tungstenite",
  "tracing",

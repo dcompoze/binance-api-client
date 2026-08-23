@@ -9,7 +9,7 @@ use crate::types::{
     OrderStatus, OrderType, TimeInForce,
 };
 
-use super::market::string_or_float;
+use super::market::{string_or_float, string_or_float_opt};
 
 /// Account information response.
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -32,7 +32,7 @@ pub struct AccountInfo {
     pub can_withdraw: bool,
     /// Whether deposits are enabled.
     pub can_deposit: bool,
-    /// Whether self-trade prevention is being used.
+    /// Whether this is a brokered account.
     #[serde(default)]
     pub brokered: bool,
     /// Whether this account requires self-trade prevention.
@@ -167,16 +167,21 @@ pub struct PreventedMatch {
     pub maker_symbol: String,
     /// Maker order ID.
     pub maker_order_id: u64,
-    /// Trade group ID.
-    pub trade_group_id: u64,
+    /// Trade group ID, `-1` when the account is not in a trade group.
+    pub trade_group_id: i64,
     /// Self-trade prevention mode.
     pub self_trade_prevention_mode: String,
     /// Price.
     #[serde(with = "string_or_float")]
     pub price: f64,
     /// Maker prevented quantity.
-    #[serde(with = "string_or_float")]
-    pub maker_prevented_quantity: f64,
+    /// Present for `EXPIRE_MAKER`, `EXPIRE_BOTH`, and `DECREMENT` matches.
+    #[serde(default, with = "string_or_float_opt")]
+    pub maker_prevented_quantity: Option<f64>,
+    /// Taker prevented quantity.
+    /// Present for `EXPIRE_TAKER`, `EXPIRE_BOTH`, and `DECREMENT` matches.
+    #[serde(default, with = "string_or_float_opt")]
+    pub taker_prevented_quantity: Option<f64>,
     /// Transaction time.
     pub transact_time: u64,
 }
@@ -490,9 +495,9 @@ pub struct Fill {
     pub commission: f64,
     /// Commission asset.
     pub commission_asset: String,
-    /// Trade ID.
+    /// Trade ID, `-1` on SOR fills.
     #[serde(default)]
-    pub trade_id: Option<u64>,
+    pub trade_id: Option<i64>,
 }
 
 /// Cancel order response.

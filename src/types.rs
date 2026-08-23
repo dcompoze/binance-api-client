@@ -6,24 +6,22 @@
 use serde::{Deserialize, Serialize};
 
 /// Order side (buy or sell).
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "SCREAMING_SNAKE_CASE")]
 pub enum OrderSide {
     /// Buy order
-    #[default]
     Buy,
     /// Sell order
     Sell,
 }
 
 /// Order type.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "SCREAMING_SNAKE_CASE")]
 pub enum OrderType {
     /// Limit order - specify price and quantity
     Limit,
     /// Market order - execute at current market price
-    #[default]
     Market,
     /// Stop loss order - triggers market order when stop price is reached
     StopLoss,
@@ -50,8 +48,6 @@ pub enum TimeInForce {
     IOC,
     /// Fill Or Kill - fill completely or cancel entirely
     FOK,
-    /// Good Till Crossing - only for Post Only orders
-    GTX,
     /// Unknown time in force
     #[serde(other)]
     Other,
@@ -77,6 +73,9 @@ pub enum OrderStatus {
     Expired,
     /// The order was canceled by the exchange due to STP trigger
     ExpiredInMatch,
+    /// Unknown order status
+    #[serde(other)]
+    Other,
 }
 
 /// Execution type for order updates.
@@ -99,6 +98,9 @@ pub enum ExecutionType {
     TradePrevention,
     /// Order modified
     Amendment,
+    /// Unknown execution type
+    #[serde(other)]
+    Other,
 }
 
 /// Kline/candlestick interval.
@@ -265,7 +267,6 @@ impl std::fmt::Display for TimeInForce {
             Self::GTC => "GTC",
             Self::IOC => "IOC",
             Self::FOK => "FOK",
-            Self::GTX => "GTX",
             Self::Other => "OTHER",
         };
         write!(f, "{}", s)
@@ -392,8 +393,13 @@ pub enum OcoStatus {
     Response,
     /// Execution started
     ExecStarted,
+    /// The `clientOrderId` of an order in the list has been changed
+    Updated,
     /// All done
     AllDone,
+    /// Unknown status
+    #[serde(other)]
+    Other,
 }
 
 /// OCO order status.
@@ -406,6 +412,9 @@ pub enum OcoOrderStatus {
     AllDone,
     /// Rejected
     Reject,
+    /// Unknown status
+    #[serde(other)]
+    Other,
 }
 
 /// Contingency type for OCO orders.

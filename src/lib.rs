@@ -96,9 +96,9 @@ pub use error::{Error, Result};
 #[allow(deprecated)]
 pub use streams::UserDataStreamManager;
 pub use streams::{
-    ConnectionHealthMonitor, ConnectionState, DepthCache, DepthCacheConfig, DepthCacheManager,
-    DepthCacheState, ReconnectConfig, ReconnectingWebSocket, WebSocketClient, WebSocketConnection,
-    WebSocketEventStream,
+    ConnectionState, DepthCache, DepthCacheConfig, DepthCacheManager, DepthCacheState,
+    DepthUpdateResult, ReconnectConfig, ReconnectingWebSocket, WebSocketClient,
+    WebSocketConnection, WebSocketEventStream,
 };
 pub use ws_api::{WsApiClient, WsApiConnection, WsApiEvent, WsApiRateLimit};
 
@@ -221,7 +221,8 @@ pub use models::{
     websocket::{
         AccountBalance, AccountPositionEvent, AggTradeEvent, BalanceUpdateEvent, BookTickerEvent,
         DepthEvent, DepthLevel, ExecutionReportEvent, KlineData, KlineEvent, ListStatusEvent,
-        ListStatusOrder, MiniTickerEvent, TickerEvent, TradeEvent, WebSocketEvent,
+        ListStatusOrder, MiniTickerEvent, PartialDepthEvent, TickerEvent, TradeEvent,
+        WebSocketEvent,
     },
 };
 

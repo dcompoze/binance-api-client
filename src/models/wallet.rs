@@ -184,6 +184,10 @@ pub enum DepositStatus {
     Success = 1,
     /// Success (credited but cannot withdraw)
     CreditedCannotWithdraw = 6,
+    /// Wrong deposit
+    WrongDeposit = 7,
+    /// Waiting for user confirmation
+    WaitingUserConfirm = 8,
 }
 
 /// Withdrawal record from history.

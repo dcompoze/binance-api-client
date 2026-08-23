@@ -3,13 +3,11 @@
 //! This module provides authenticated endpoints for account information,
 //! order management, and trading.
 
-use serde::Serialize;
-
 use crate::client::Client;
 use reqwest::StatusCode;
 
 use crate::Result;
-use crate::error::{BinanceApiError, Error};
+use crate::error::Error;
 use crate::models::{
     AccountCommission, AccountInfo, Allocation, AmendOrderResponse, CancelOrderResponse,
     CancelReplaceErrorResponse, CancelReplaceResponse, MyFilters, OcoOrder, Order, OrderAmendment,
@@ -87,6 +85,7 @@ impl Account {
     /// # Arguments
     ///
     /// * `symbol` - Trading pair symbol
+    /// * `order_id` - Only return trades for this order (cheaper request weight)
     /// * `from_id` - Trade ID to fetch from
     /// * `start_time` - Start time in milliseconds
     /// * `end_time` - End time in milliseconds
@@ -96,11 +95,12 @@ impl Account {
     ///
     /// ```rust,ignore
     /// let client = Binance::new("api_key", "secret_key")?;
-    /// let trades = client.account().my_trades("BTCUSDT", None, None, None, Some(10)).await?;
+    /// let trades = client.account().my_trades("BTCUSDT", None, None, None, None, Some(10)).await?;
     /// ```
     pub async fn my_trades(
         &self,
         symbol: &str,
+        order_id: Option<u64>,
         from_id: Option<u64>,
         start_time: Option<u64>,
         end_time: Option<u64>,
@@ -108,6 +108,9 @@ impl Account {
     ) -> Result<Vec<UserTrade>> {
         let mut params: Vec<(&str, String)> = vec![("symbol", symbol.to_string())];
 
+        if let Some(id) = order_id {
+            params.push(("orderId", id.to_string()));
+        }
         if let Some(id) = from_id {
             params.push(("fromId", id.to_string()));
         }
@@ -447,31 +450,17 @@ impl Account {
             .await?;
 
         match response.status() {
-            StatusCode::OK => Ok(response.json().await?),
+            StatusCode::OK => {
+                self.client.record_rate_limit_headers(response.headers());
+                Ok(response.json().await?)
+            }
+            // Cancel-replace failures return a structured error body on 400/409.
             StatusCode::BAD_REQUEST | StatusCode::CONFLICT => {
+                self.client.record_rate_limit_headers(response.headers());
                 let error: CancelReplaceErrorResponse = response.json().await?;
                 Err(Error::from_cancel_replace_error(error))
             }
-            StatusCode::UNAUTHORIZED => Err(Error::Api {
-                code: 401,
-                message: "Unauthorized".to_string(),
-            }),
-            StatusCode::FORBIDDEN | StatusCode::TOO_MANY_REQUESTS => {
-                let error: BinanceApiError = response.json().await?;
-                Err(Error::from_binance_error(error))
-            }
-            StatusCode::INTERNAL_SERVER_ERROR => Err(Error::Api {
-                code: 500,
-                message: "Internal server error".to_string(),
-            }),
-            StatusCode::SERVICE_UNAVAILABLE => Err(Error::Api {
-                code: 503,
-                message: "Service unavailable".to_string(),
-            }),
-            status => Err(Error::Api {
-                code: status.as_u16() as i32,
-                message: format!("Unexpected status code: {}", status),
-            }),
+            _ => Err(self.client.error_from_response(response).await),
         }
     }
 
@@ -1055,10 +1044,17 @@ pub struct OrderBuilder {
     quote_quantity: Option<String>,
     price: Option<String>,
     stop_price: Option<String>,
+    trailing_delta: Option<u64>,
     time_in_force: Option<TimeInForce>,
     client_order_id: Option<String>,
+    strategy_id: Option<u64>,
+    strategy_type: Option<i32>,
     iceberg_qty: Option<String>,
     response_type: Option<OrderResponseType>,
+    self_trade_prevention_mode: Option<String>,
+    peg_price_type: Option<String>,
+    peg_offset_value: Option<i32>,
+    peg_offset_type: Option<String>,
 }
 
 /// Builder for cancel-replace orders.
@@ -1310,10 +1306,7 @@ impl CancelReplaceOrder {
     pub(crate) fn to_params(&self) -> Vec<(String, String)> {
         let mut params = vec![
             ("symbol".to_string(), self.symbol.clone()),
-            (
-                "side".to_string(),
-                format!("{:?}", self.side).to_uppercase(),
-            ),
+            ("side".to_string(), self.side.to_string()),
             ("type".to_string(), self.order_type.to_string()),
             (
                 "cancelReplaceMode".to_string(),
@@ -1322,7 +1315,7 @@ impl CancelReplaceOrder {
         ];
 
         if let Some(ref tif) = self.time_in_force {
-            params.push(("timeInForce".to_string(), format!("{:?}", tif)));
+            params.push(("timeInForce".to_string(), tif.to_string()));
         }
         if let Some(ref qty) = self.quantity {
             params.push(("quantity".to_string(), qty.clone()));
@@ -1400,10 +1393,17 @@ impl OrderBuilder {
             quote_quantity: None,
             price: None,
             stop_price: None,
+            trailing_delta: None,
             time_in_force: None,
             client_order_id: None,
+            strategy_id: None,
+            strategy_type: None,
             iceberg_qty: None,
             response_type: None,
+            self_trade_prevention_mode: None,
+            peg_price_type: None,
+            peg_offset_value: None,
+            peg_offset_type: None,
         }
     }
 
@@ -1431,6 +1431,12 @@ impl OrderBuilder {
         self
     }
 
+    /// Set the trailing delta in BIPS (for trailing stop orders).
+    pub fn trailing_delta(mut self, delta: u64) -> Self {
+        self.trailing_delta = Some(delta);
+        self
+    }
+
     /// Set the time in force.
     pub fn time_in_force(mut self, tif: TimeInForce) -> Self {
         self.time_in_force = Some(tif);
@@ -1440,6 +1446,18 @@ impl OrderBuilder {
     /// Set a custom client order ID.
     pub fn client_order_id(mut self, id: &str) -> Self {
         self.client_order_id = Some(id.to_string());
+        self
+    }
+
+    /// Set the strategy ID.
+    pub fn strategy_id(mut self, id: u64) -> Self {
+        self.strategy_id = Some(id);
+        self
+    }
+
+    /// Set the strategy type.
+    pub fn strategy_type(mut self, strategy_type: i32) -> Self {
+        self.strategy_type = Some(strategy_type);
         self
     }
 
@@ -1455,6 +1473,30 @@ impl OrderBuilder {
         self
     }
 
+    /// Set self-trade prevention mode.
+    pub fn self_trade_prevention_mode(mut self, mode: &str) -> Self {
+        self.self_trade_prevention_mode = Some(mode.to_string());
+        self
+    }
+
+    /// Set pegged price type.
+    pub fn peg_price_type(mut self, peg_price_type: &str) -> Self {
+        self.peg_price_type = Some(peg_price_type.to_string());
+        self
+    }
+
+    /// Set pegged offset value.
+    pub fn peg_offset_value(mut self, peg_offset_value: i32) -> Self {
+        self.peg_offset_value = Some(peg_offset_value);
+        self
+    }
+
+    /// Set pegged offset type.
+    pub fn peg_offset_type(mut self, peg_offset_type: &str) -> Self {
+        self.peg_offset_type = Some(peg_offset_type.to_string());
+        self
+    }
+
     /// Build the order.
     pub fn build(self) -> NewOrder {
         NewOrder {
@@ -1465,48 +1507,49 @@ impl OrderBuilder {
             quote_quantity: self.quote_quantity,
             price: self.price,
             stop_price: self.stop_price,
+            trailing_delta: self.trailing_delta,
             time_in_force: self.time_in_force,
             client_order_id: self.client_order_id,
+            strategy_id: self.strategy_id,
+            strategy_type: self.strategy_type,
             iceberg_qty: self.iceberg_qty,
             response_type: self.response_type,
+            self_trade_prevention_mode: self.self_trade_prevention_mode,
+            peg_price_type: self.peg_price_type,
+            peg_offset_value: self.peg_offset_value,
+            peg_offset_type: self.peg_offset_type,
         }
     }
 }
 
 /// New order parameters.
-#[derive(Debug, Clone, Serialize)]
-#[serde(rename_all = "camelCase")]
+#[derive(Debug, Clone)]
 pub struct NewOrder {
     symbol: String,
     side: OrderSide,
-    #[serde(rename = "type")]
     order_type: OrderType,
-    #[serde(skip_serializing_if = "Option::is_none")]
     quantity: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none", rename = "quoteOrderQty")]
     quote_quantity: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
     price: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
     stop_price: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
+    trailing_delta: Option<u64>,
     time_in_force: Option<TimeInForce>,
-    #[serde(skip_serializing_if = "Option::is_none", rename = "newClientOrderId")]
     client_order_id: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
+    strategy_id: Option<u64>,
+    strategy_type: Option<i32>,
     iceberg_qty: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none", rename = "newOrderRespType")]
     response_type: Option<OrderResponseType>,
+    self_trade_prevention_mode: Option<String>,
+    peg_price_type: Option<String>,
+    peg_offset_value: Option<i32>,
+    peg_offset_type: Option<String>,
 }
 
 impl NewOrder {
     pub(crate) fn to_params(&self) -> Vec<(String, String)> {
         let mut params = vec![
             ("symbol".to_string(), self.symbol.clone()),
-            (
-                "side".to_string(),
-                format!("{:?}", self.side).to_uppercase(),
-            ),
+            ("side".to_string(), self.side.to_string()),
             ("type".to_string(), self.order_type.to_string()),
         ];
 
@@ -1522,11 +1565,20 @@ impl NewOrder {
         if let Some(ref stop) = self.stop_price {
             params.push(("stopPrice".to_string(), stop.clone()));
         }
+        if let Some(delta) = self.trailing_delta {
+            params.push(("trailingDelta".to_string(), delta.to_string()));
+        }
         if let Some(ref tif) = self.time_in_force {
-            params.push(("timeInForce".to_string(), format!("{:?}", tif)));
+            params.push(("timeInForce".to_string(), tif.to_string()));
         }
         if let Some(ref cid) = self.client_order_id {
             params.push(("newClientOrderId".to_string(), cid.clone()));
+        }
+        if let Some(id) = self.strategy_id {
+            params.push(("strategyId".to_string(), id.to_string()));
+        }
+        if let Some(id) = self.strategy_type {
+            params.push(("strategyType".to_string(), id.to_string()));
         }
         if let Some(ref ice) = self.iceberg_qty {
             params.push(("icebergQty".to_string(), ice.clone()));
@@ -1536,6 +1588,18 @@ impl NewOrder {
                 "newOrderRespType".to_string(),
                 format!("{:?}", resp).to_uppercase(),
             ));
+        }
+        if let Some(ref mode) = self.self_trade_prevention_mode {
+            params.push(("selfTradePreventionMode".to_string(), mode.clone()));
+        }
+        if let Some(ref peg) = self.peg_price_type {
+            params.push(("pegPriceType".to_string(), peg.clone()));
+        }
+        if let Some(value) = self.peg_offset_value {
+            params.push(("pegOffsetValue".to_string(), value.to_string()));
+        }
+        if let Some(ref peg) = self.peg_offset_type {
+            params.push(("pegOffsetType".to_string(), peg.clone()));
         }
 
         params
@@ -1654,10 +1718,7 @@ impl NewOcoOrder {
     pub(crate) fn to_params(&self) -> Vec<(String, String)> {
         let mut params = vec![
             ("symbol".to_string(), self.symbol.clone()),
-            (
-                "side".to_string(),
-                format!("{:?}", self.side).to_uppercase(),
-            ),
+            ("side".to_string(), self.side.to_string()),
             ("quantity".to_string(), self.quantity.clone()),
             ("price".to_string(), self.price.clone()),
             ("stopPrice".to_string(), self.stop_price.clone()),
@@ -1667,7 +1728,7 @@ impl NewOcoOrder {
             params.push(("stopLimitPrice".to_string(), slp.clone()));
         }
         if let Some(ref tif) = self.stop_limit_time_in_force {
-            params.push(("stopLimitTimeInForce".to_string(), format!("{:?}", tif)));
+            params.push(("stopLimitTimeInForce".to_string(), tif.to_string()));
         }
         if let Some(ref id) = self.list_client_order_id {
             params.push(("listClientOrderId".to_string(), id.clone()));
@@ -1986,7 +2047,7 @@ impl NewOtoOrder {
             params.push(("workingIcebergQty".to_string(), qty.clone()));
         }
         if let Some(ref tif) = self.working_time_in_force {
-            params.push(("workingTimeInForce".to_string(), format!("{:?}", tif)));
+            params.push(("workingTimeInForce".to_string(), tif.to_string()));
         }
         if let Some(id) = self.working_strategy_id {
             params.push(("workingStrategyId".to_string(), id.to_string()));
@@ -2019,7 +2080,7 @@ impl NewOtoOrder {
             params.push(("pendingIcebergQty".to_string(), qty.clone()));
         }
         if let Some(ref tif) = self.pending_time_in_force {
-            params.push(("pendingTimeInForce".to_string(), format!("{:?}", tif)));
+            params.push(("pendingTimeInForce".to_string(), tif.to_string()));
         }
         if let Some(id) = self.pending_strategy_id {
             params.push(("pendingStrategyId".to_string(), id.to_string()));
@@ -2640,7 +2701,7 @@ impl NewOtocoOrder {
             params.push(("workingIcebergQty".to_string(), qty.clone()));
         }
         if let Some(ref tif) = self.working_time_in_force {
-            params.push(("workingTimeInForce".to_string(), format!("{:?}", tif)));
+            params.push(("workingTimeInForce".to_string(), tif.to_string()));
         }
         if let Some(id) = self.working_strategy_id {
             params.push(("workingStrategyId".to_string(), id.to_string()));
@@ -2673,7 +2734,7 @@ impl NewOtocoOrder {
             params.push(("pendingAboveIcebergQty".to_string(), qty.clone()));
         }
         if let Some(ref tif) = self.pending_above_time_in_force {
-            params.push(("pendingAboveTimeInForce".to_string(), format!("{:?}", tif)));
+            params.push(("pendingAboveTimeInForce".to_string(), tif.to_string()));
         }
         if let Some(id) = self.pending_above_strategy_id {
             params.push(("pendingAboveStrategyId".to_string(), id.to_string()));
@@ -2709,7 +2770,7 @@ impl NewOtocoOrder {
             params.push(("pendingBelowIcebergQty".to_string(), qty.clone()));
         }
         if let Some(ref tif) = self.pending_below_time_in_force {
-            params.push(("pendingBelowTimeInForce".to_string(), format!("{:?}", tif)));
+            params.push(("pendingBelowTimeInForce".to_string(), tif.to_string()));
         }
         if let Some(id) = self.pending_below_strategy_id {
             params.push(("pendingBelowStrategyId".to_string(), id.to_string()));
@@ -3032,10 +3093,7 @@ impl NewOcoOrderList {
     pub(crate) fn to_params(&self) -> Vec<(String, String)> {
         let mut params = vec![
             ("symbol".to_string(), self.symbol.clone()),
-            (
-                "side".to_string(),
-                format!("{:?}", self.side).to_uppercase(),
-            ),
+            ("side".to_string(), self.side.to_string()),
             ("quantity".to_string(), self.quantity.clone()),
             ("aboveType".to_string(), self.above_type.to_string()),
             ("belowType".to_string(), self.below_type.to_string()),

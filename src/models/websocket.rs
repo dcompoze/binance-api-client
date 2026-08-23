@@ -35,6 +35,11 @@ pub enum WebSocketEvent {
     /// Depth update event.
     #[serde(rename = "depthUpdate")]
     Depth(DepthEvent),
+    /// Partial book depth snapshot.
+    /// The raw payload has no event type field, the client assigns this
+    /// variant based on the payload shape.
+    #[serde(rename = "partialDepth")]
+    PartialDepth(PartialDepthEvent),
     /// Account position update (user data stream).
     #[serde(rename = "outboundAccountPosition")]
     AccountPosition(AccountPositionEvent),
@@ -271,11 +276,13 @@ pub struct TradeEvent {
     #[serde(rename = "q", with = "string_or_float")]
     pub quantity: f64,
     /// Buyer order ID.
-    #[serde(rename = "b")]
-    pub buyer_order_id: u64,
+    /// No longer sent by current trade streams.
+    #[serde(rename = "b", default)]
+    pub buyer_order_id: Option<u64>,
     /// Seller order ID.
-    #[serde(rename = "a")]
-    pub seller_order_id: u64,
+    /// No longer sent by current trade streams.
+    #[serde(rename = "a", default)]
+    pub seller_order_id: Option<u64>,
     /// Trade time.
     #[serde(rename = "T")]
     pub trade_time: u64,
@@ -283,7 +290,7 @@ pub struct TradeEvent {
     #[serde(rename = "m")]
     pub is_buyer_maker: bool,
     /// Ignore.
-    #[serde(rename = "M")]
+    #[serde(rename = "M", default)]
     pub is_best_match: bool,
 }
 
@@ -475,6 +482,18 @@ pub struct BookTickerEvent {
     /// Best ask quantity.
     #[serde(rename = "A", with = "string_or_float")]
     pub ask_quantity: f64,
+}
+
+/// Partial book depth snapshot from `<symbol>@depth<levels>` streams.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PartialDepthEvent {
+    /// Last update ID.
+    pub last_update_id: u64,
+    /// Bid levels.
+    pub bids: Vec<DepthLevel>,
+    /// Ask levels.
+    pub asks: Vec<DepthLevel>,
 }
 
 /// Depth update event.

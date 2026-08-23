@@ -26,11 +26,6 @@ async fn main() -> binance_api_client::Result<()> {
     println!("  Max reconnects: {}", config.max_reconnects);
     println!("  Max reconnect delay: {:?}", config.max_reconnect_delay);
     println!("  Base delay: {:?}", config.base_delay);
-    println!("  Health check enabled: {}", config.health_check_enabled);
-    println!(
-        "  Health check interval: {:?}",
-        config.health_check_interval
-    );
     println!();
 
     // Connect to aggregate trade stream with auto-reconnection
@@ -103,8 +98,6 @@ async fn main() -> binance_api_client::Result<()> {
     println!("    max_reconnects: 10,");
     println!("    max_reconnect_delay: Duration::from_secs(120),");
     println!("    base_delay: Duration::from_millis(500),");
-    println!("    health_check_enabled: true,");
-    println!("    health_check_interval: Duration::from_secs(60),");
     println!("}};");
     println!();
     println!("let conn = ReconnectingWebSocket::new(url, config).await?;");

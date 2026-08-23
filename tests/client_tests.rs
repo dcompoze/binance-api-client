@@ -28,7 +28,7 @@ async fn test_signed_request_is_percent_encoded_and_signed_over_encoded_payload(
     // A symbol with reserved characters must be encoded before signing.
     let result = client
         .account()
-        .my_trades("BTC&USDT=X", None, None, None, None)
+        .my_trades("BTC&USDT=X", None, None, None, None, None)
         .await;
     assert!(result.is_ok());
 

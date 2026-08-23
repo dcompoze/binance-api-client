@@ -192,14 +192,17 @@ Stream connections support live `SUBSCRIBE`/`UNSUBSCRIBE`, and `ReconnectingWebS
 ```rust
 use binance_api_client::{Binance, Config};
 
-let config = Config::builder()
-    .recv_window(10000)             // Set recv_window to 10 seconds
-    .timeout_secs(30)               // Set request timeout to 30 seconds
-    .proxy("http://localhost:8080") // Route REST requests through a proxy
-    .microsecond_timestamps(true)   // Send timestamps in microseconds
-    .build();
+fn main() -> binance_api_client::Result<()> {
+    let config = Config::builder()
+        .recv_window(10000)             // Set recv_window to 10 seconds
+        .timeout_secs(30)               // Set request timeout to 30 seconds
+        .proxy("http://localhost:8080") // Route REST requests through a proxy
+        .microsecond_timestamps(true)   // Send timestamps in microseconds
+        .build();
 
-let client = Binance::with_config(config, Some(("api_key", "secret_key")))?;
+    let client = Binance::with_config(config, Some(("api_key", "secret_key")))?;
+    Ok(())
+}
 ```
 
 Presets:
@@ -224,7 +227,12 @@ export BINANCE_SECRET_KEY=""
 ```
 
 ```rust
-let client = Binance::from_env()?;
+use binance_api_client::Binance;
+
+fn main() -> binance_api_client::Result<()> {
+    let client = Binance::from_env()?;
+    Ok(())
+}
 ```
 
 ## Project structure

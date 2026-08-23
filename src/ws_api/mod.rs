@@ -133,8 +133,10 @@ impl WsApiClient {
         });
 
         // Reader task, routes responses to pending requests and pushes events.
+        // It holds only a weak sender so the writer task exits when the
+        // connection handle is dropped.
         let reader_pending = Arc::clone(&pending);
-        let reader_write_tx = write_tx.clone();
+        let reader_write_tx = write_tx.downgrade();
         tokio::spawn(async move {
             while let Some(frame) = source.next().await {
                 let frame = match frame {
@@ -164,12 +166,18 @@ impl WsApiClient {
                         }
                     }
                     Message::Ping(payload) => {
-                        let _ = reader_write_tx.send(Message::Pong(payload));
+                        if let Some(tx) = reader_write_tx.upgrade() {
+                            let _ = tx.send(Message::Pong(payload));
+                        }
                     }
                     Message::Close(_) => break,
                     _ => {}
                 }
             }
+
+            // Fail pending requests immediately instead of letting them
+            // wait out the request timeout.
+            reader_pending.lock().await.clear();
         });
 
         Ok(WsApiConnection {
@@ -488,6 +496,21 @@ impl WsApiConnection {
     /// Query account information via `account.status`.
     pub async fn account_status(&self) -> Result<Value> {
         self.signed_request("account.status", Map::new()).await
+    }
+
+    /// Close the connection.
+    ///
+    /// Pending requests fail once the server confirms the close.
+    pub fn close(&self) {
+        let _ = self.write_tx.send(Message::Close(None));
+    }
+}
+
+impl Drop for WsApiConnection {
+    fn drop(&mut self) {
+        // Ask the server to close so the background tasks shut down instead
+        // of lingering until the 24 hour connection limit.
+        let _ = self.write_tx.send(Message::Close(None));
     }
 }
 

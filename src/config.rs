@@ -10,7 +10,7 @@ pub const WS_ENDPOINT: &str = "wss://stream.binance.com:9443";
 pub const TESTNET_REST_API_ENDPOINT: &str = "https://testnet.binance.vision";
 
 /// Testnet WebSocket base URL.
-pub const TESTNET_WS_ENDPOINT: &str = "wss://testnet.binance.vision";
+pub const TESTNET_WS_ENDPOINT: &str = "wss://stream.testnet.binance.vision:9443";
 
 /// Binance.US REST API base URL.
 pub const BINANCE_US_REST_API_ENDPOINT: &str = "https://api.binance.us";
