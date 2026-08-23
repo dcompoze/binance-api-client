@@ -25,7 +25,6 @@ const API_V3_ORDER: &str = "/api/v3/order";
 const API_V3_ORDER_TEST: &str = "/api/v3/order/test";
 const API_V3_OPEN_ORDERS: &str = "/api/v3/openOrders";
 const API_V3_ALL_ORDERS: &str = "/api/v3/allOrders";
-const API_V3_ORDER_OCO: &str = "/api/v3/order/oco";
 const API_V3_ORDER_LIST_OCO: &str = "/api/v3/orderList/oco";
 const API_V3_ORDER_LIST_OTO: &str = "/api/v3/orderList/oto";
 const API_V3_ORDER_LIST_OTOCO: &str = "/api/v3/orderList/otoco";
@@ -655,31 +654,6 @@ impl Account {
     }
 
     // OCO Order Endpoints.
-
-    /// Create a new OCO (One-Cancels-Other) order.
-    ///
-    /// An OCO order combines a limit order with a stop-limit order.
-    ///
-    /// # Example
-    ///
-    /// ```rust,ignore
-    /// let oco = OcoOrderBuilder::new("BTCUSDT", OrderSide::Sell, "1.0", "55000.00", "48000.00")
-    ///     .stop_limit_price("47900.00")
-    ///     .build();
-    ///
-    /// let result = client.account().create_oco(&oco).await?;
-    /// ```
-    #[deprecated(
-        note = "`POST /api/v3/order/oco` is deprecated by Binance. Use `create_oco_list` with `POST /api/v3/orderList/oco` instead."
-    )]
-    pub async fn create_oco(&self, order: &NewOcoOrder) -> Result<OcoOrder> {
-        let params = order.to_params();
-        let params_ref: Vec<(&str, &str)> = params
-            .iter()
-            .map(|(k, v)| (k.as_str(), v.as_str()))
-            .collect();
-        self.client.post_signed(API_V3_ORDER_OCO, &params_ref).await
-    }
 
     /// Create a new OCO order list using `POST /api/v3/orderList/oco`.
     ///
@@ -1600,144 +1574,6 @@ impl NewOrder {
         }
         if let Some(ref peg) = self.peg_offset_type {
             params.push(("pegOffsetType".to_string(), peg.clone()));
-        }
-
-        params
-    }
-}
-
-/// Builder for creating OCO orders.
-#[derive(Debug, Clone)]
-pub struct OcoOrderBuilder {
-    symbol: String,
-    side: OrderSide,
-    quantity: String,
-    price: String,
-    stop_price: String,
-    stop_limit_price: Option<String>,
-    stop_limit_time_in_force: Option<TimeInForce>,
-    list_client_order_id: Option<String>,
-    limit_client_order_id: Option<String>,
-    stop_client_order_id: Option<String>,
-}
-
-impl OcoOrderBuilder {
-    /// Create a new OCO order builder.
-    ///
-    /// # Arguments
-    ///
-    /// * `symbol` - Trading pair symbol
-    /// * `side` - Order side (Buy or Sell)
-    /// * `quantity` - Order quantity
-    /// * `price` - Limit order price
-    /// * `stop_price` - Stop order trigger price
-    pub fn new(
-        symbol: &str,
-        side: OrderSide,
-        quantity: &str,
-        price: &str,
-        stop_price: &str,
-    ) -> Self {
-        Self {
-            symbol: symbol.to_string(),
-            side,
-            quantity: quantity.to_string(),
-            price: price.to_string(),
-            stop_price: stop_price.to_string(),
-            stop_limit_price: None,
-            stop_limit_time_in_force: None,
-            list_client_order_id: None,
-            limit_client_order_id: None,
-            stop_client_order_id: None,
-        }
-    }
-
-    /// Set the stop limit price.
-    pub fn stop_limit_price(mut self, price: &str) -> Self {
-        self.stop_limit_price = Some(price.to_string());
-        self
-    }
-
-    /// Set the stop limit time in force.
-    pub fn stop_limit_time_in_force(mut self, tif: TimeInForce) -> Self {
-        self.stop_limit_time_in_force = Some(tif);
-        self
-    }
-
-    /// Set a custom list client order ID.
-    pub fn list_client_order_id(mut self, id: &str) -> Self {
-        self.list_client_order_id = Some(id.to_string());
-        self
-    }
-
-    /// Set a custom limit client order ID.
-    pub fn limit_client_order_id(mut self, id: &str) -> Self {
-        self.limit_client_order_id = Some(id.to_string());
-        self
-    }
-
-    /// Set a custom stop client order ID.
-    pub fn stop_client_order_id(mut self, id: &str) -> Self {
-        self.stop_client_order_id = Some(id.to_string());
-        self
-    }
-
-    /// Build the OCO order.
-    pub fn build(self) -> NewOcoOrder {
-        NewOcoOrder {
-            symbol: self.symbol,
-            side: self.side,
-            quantity: self.quantity,
-            price: self.price,
-            stop_price: self.stop_price,
-            stop_limit_price: self.stop_limit_price,
-            stop_limit_time_in_force: self.stop_limit_time_in_force,
-            list_client_order_id: self.list_client_order_id,
-            limit_client_order_id: self.limit_client_order_id,
-            stop_client_order_id: self.stop_client_order_id,
-        }
-    }
-}
-
-/// New OCO order parameters.
-#[derive(Debug, Clone)]
-pub struct NewOcoOrder {
-    symbol: String,
-    side: OrderSide,
-    quantity: String,
-    price: String,
-    stop_price: String,
-    stop_limit_price: Option<String>,
-    stop_limit_time_in_force: Option<TimeInForce>,
-    list_client_order_id: Option<String>,
-    limit_client_order_id: Option<String>,
-    stop_client_order_id: Option<String>,
-}
-
-impl NewOcoOrder {
-    pub(crate) fn to_params(&self) -> Vec<(String, String)> {
-        let mut params = vec![
-            ("symbol".to_string(), self.symbol.clone()),
-            ("side".to_string(), self.side.to_string()),
-            ("quantity".to_string(), self.quantity.clone()),
-            ("price".to_string(), self.price.clone()),
-            ("stopPrice".to_string(), self.stop_price.clone()),
-        ];
-
-        if let Some(ref slp) = self.stop_limit_price {
-            params.push(("stopLimitPrice".to_string(), slp.clone()));
-        }
-        if let Some(ref tif) = self.stop_limit_time_in_force {
-            params.push(("stopLimitTimeInForce".to_string(), tif.to_string()));
-        }
-        if let Some(ref id) = self.list_client_order_id {
-            params.push(("listClientOrderId".to_string(), id.clone()));
-        }
-        if let Some(ref id) = self.limit_client_order_id {
-            params.push(("limitClientOrderId".to_string(), id.clone()));
-        }
-        if let Some(ref id) = self.stop_client_order_id {
-            params.push(("stopClientOrderId".to_string(), id.clone()));
         }
 
         params
@@ -3391,20 +3227,5 @@ mod tests {
         assert!(params.iter().any(|(k, v)| k == "type" && v == "LIMIT"));
         assert!(params.iter().any(|(k, v)| k == "quantity" && v == "0.001"));
         assert!(params.iter().any(|(k, v)| k == "price" && v == "50000.00"));
-    }
-
-    #[test]
-    fn test_oco_order_builder() {
-        let order = OcoOrderBuilder::new("BTCUSDT", OrderSide::Sell, "1.0", "55000.00", "48000.00")
-            .stop_limit_price("47900.00")
-            .stop_limit_time_in_force(TimeInForce::GTC)
-            .build();
-
-        assert_eq!(order.symbol, "BTCUSDT");
-        assert_eq!(order.side, OrderSide::Sell);
-        assert_eq!(order.quantity, "1.0");
-        assert_eq!(order.price, "55000.00");
-        assert_eq!(order.stop_price, "48000.00");
-        assert_eq!(order.stop_limit_price, Some("47900.00".to_string()));
     }
 }

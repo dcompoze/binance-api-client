@@ -41,6 +41,7 @@ use crate::config::Config;
 use crate::credentials::{Credentials, get_timestamp};
 use crate::error::{Error, Result};
 use crate::models::websocket::WebSocketEvent;
+use crate::models::{AccountInfo, CancelOrderResponse, Order, OrderFull};
 use crate::rest::NewOrder;
 
 /// Default time to wait for a response before giving up.
@@ -58,6 +59,26 @@ pub struct WsApiRateLimit {
     pub limit: u64,
     #[serde(default)]
     pub count: u64,
+}
+
+/// Session information returned by the `session.*` methods.
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct WsApiSession {
+    /// API key the session is authenticated with, `None` when not
+    /// authenticated.
+    pub api_key: Option<String>,
+    /// When the session was authenticated, `None` when not authenticated.
+    pub authorized_since: Option<u64>,
+    /// When the connection was established.
+    pub connected_since: u64,
+    /// Whether responses include rate limit status.
+    pub return_rate_limits: bool,
+    /// Current server time in milliseconds.
+    pub server_time: u64,
+    /// Whether a user data stream subscription is active.
+    #[serde(default)]
+    pub user_data_stream: bool,
 }
 
 /// A raw response frame from the WebSocket API.
@@ -381,23 +402,23 @@ impl WsApiConnection {
     /// After logon, signed requests on this connection no longer need
     /// explicit `apiKey` and `signature` parameters, and
     /// `subscribe_user_data` becomes available.
-    pub async fn session_logon(&self) -> Result<Value> {
+    pub async fn session_logon(&self) -> Result<WsApiSession> {
         let params = self.sign_params(Map::new())?;
-        self.request("session.logon", Some(Value::Object(params)))
+        self.request_typed("session.logon", Some(Value::Object(params)))
             .await
     }
 
     /// Query the session authentication status.
-    pub async fn session_status(&self) -> Result<Value> {
-        self.request("session.status", None).await
+    pub async fn session_status(&self) -> Result<WsApiSession> {
+        self.request_typed("session.status", None).await
     }
 
     /// Log out of the session.
     ///
     /// Closes subscriptions created with `subscribe_user_data` but not
     /// those created with `subscribe_user_data_with_signature`.
-    pub async fn session_logout(&self) -> Result<Value> {
-        self.request("session.logout", None).await
+    pub async fn session_logout(&self) -> Result<WsApiSession> {
+        self.request_typed("session.logout", None).await
     }
 
     /// List the active user data stream subscription ids for this session.
@@ -450,52 +471,56 @@ impl WsApiConnection {
     }
 
     /// Place a new order via `order.place`.
-    pub async fn place_order(&self, order: &NewOrder) -> Result<Value> {
-        self.signed_request("order.place", order_params(order.to_params()))
+    pub async fn place_order(&self, order: &NewOrder) -> Result<OrderFull> {
+        self.signed_request_typed("order.place", order_params(order.to_params()))
             .await
     }
 
     /// Test a new order via `order.test` without sending it to the matching engine.
-    pub async fn test_order(&self, order: &NewOrder) -> Result<Value> {
-        self.signed_request("order.test", order_params(order.to_params()))
-            .await
+    pub async fn test_order(&self, order: &NewOrder) -> Result<()> {
+        let _: Value = self
+            .signed_request_typed("order.test", order_params(order.to_params()))
+            .await?;
+        Ok(())
     }
 
     /// Query an order's status via `order.status`.
-    pub async fn order_status(&self, symbol: &str, order_id: u64) -> Result<Value> {
+    pub async fn order_status(&self, symbol: &str, order_id: u64) -> Result<Order> {
         let mut params = Map::new();
         params.insert("symbol".to_string(), json!(symbol));
         params.insert("orderId".to_string(), json!(order_id));
-        self.signed_request("order.status", params).await
+        self.signed_request_typed("order.status", params).await
     }
 
     /// Cancel an order via `order.cancel`.
-    pub async fn cancel_order(&self, symbol: &str, order_id: u64) -> Result<Value> {
+    pub async fn cancel_order(&self, symbol: &str, order_id: u64) -> Result<CancelOrderResponse> {
         let mut params = Map::new();
         params.insert("symbol".to_string(), json!(symbol));
         params.insert("orderId".to_string(), json!(order_id));
-        self.signed_request("order.cancel", params).await
+        self.signed_request_typed("order.cancel", params).await
     }
 
     /// Cancel all open orders on a symbol via `openOrders.cancelAll`.
-    pub async fn cancel_all_orders(&self, symbol: &str) -> Result<Value> {
+    pub async fn cancel_all_orders(&self, symbol: &str) -> Result<Vec<CancelOrderResponse>> {
         let mut params = Map::new();
         params.insert("symbol".to_string(), json!(symbol));
-        self.signed_request("openOrders.cancelAll", params).await
+        self.signed_request_typed("openOrders.cancelAll", params)
+            .await
     }
 
     /// Query current open orders via `openOrders.status`.
-    pub async fn open_orders(&self, symbol: Option<&str>) -> Result<Value> {
+    pub async fn open_orders(&self, symbol: Option<&str>) -> Result<Vec<Order>> {
         let mut params = Map::new();
         if let Some(symbol) = symbol {
             params.insert("symbol".to_string(), json!(symbol));
         }
-        self.signed_request("openOrders.status", params).await
+        self.signed_request_typed("openOrders.status", params).await
     }
 
     /// Query account information via `account.status`.
-    pub async fn account_status(&self) -> Result<Value> {
-        self.signed_request("account.status", Map::new()).await
+    pub async fn account_status(&self) -> Result<AccountInfo> {
+        self.signed_request_typed("account.status", Map::new())
+            .await
     }
 
     /// Close the connection.

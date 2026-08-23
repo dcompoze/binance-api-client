@@ -7,27 +7,6 @@ use serde::{Deserialize, Serialize};
 use super::string_or_float;
 use crate::types::{OrderSide, OrderStatus, OrderType, TimeInForce};
 
-/// Margin transfer type.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-pub enum MarginTransferType {
-    /// Transfer from main account to margin account
-    #[serde(rename = "1")]
-    MainToMargin,
-    /// Transfer from margin account to main account
-    #[serde(rename = "2")]
-    MarginToMain,
-}
-
-/// Isolated margin transfer type.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "SCREAMING_SNAKE_CASE")]
-pub enum IsolatedMarginTransferType {
-    /// Spot account
-    Spot,
-    /// Isolated margin account
-    IsolatedMargin,
-}
-
 /// Side effect type for margin orders.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
 #[serde(rename_all = "SCREAMING_SNAKE_CASE")]

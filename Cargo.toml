@@ -11,7 +11,9 @@ readme = "README.md"
 repository = "https://github.com/dcompoze/binance-api-client"
 rust-version = "1.85"
 version = "1.0.0"
-exclude = ["PLAN.md", "CLAUDE.md", ".repositories/"]
+
+[features]
+binance-us = []
 
 [lib]
 name = "binance_api_client"

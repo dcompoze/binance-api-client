@@ -10,16 +10,14 @@ use crate::client::Client;
 use crate::error::Result;
 use crate::models::margin::{
     BnbBurnStatus, InterestHistoryRecord, InterestRateRecord, IsolatedAccountLimit,
-    IsolatedMarginAccountDetails, IsolatedMarginTransferType, LoanRecord, MarginAccountDetails,
-    MarginAssetInfo, MarginOrderCancellation, MarginOrderResult, MarginOrderState,
-    MarginPairDetails, MarginPriceIndex, MarginTrade, MarginTransferType, MaxBorrowableAmount,
-    MaxTransferableAmount, RecordsQueryResult, RepayRecord, SideEffectType, TransactionId,
+    IsolatedMarginAccountDetails, LoanRecord, MarginAccountDetails, MarginAssetInfo,
+    MarginOrderCancellation, MarginOrderResult, MarginOrderState, MarginPairDetails,
+    MarginPriceIndex, MarginTrade, MaxBorrowableAmount, MaxTransferableAmount, RecordsQueryResult,
+    RepayRecord, SideEffectType, TransactionId,
 };
 use crate::types::{OrderSide, OrderType, TimeInForce};
 
 // SAPI endpoints.
-const SAPI_V1_MARGIN_TRANSFER: &str = "/sapi/v1/margin/transfer";
-const SAPI_V1_MARGIN_ISOLATED_TRANSFER: &str = "/sapi/v1/margin/isolated/transfer";
 const SAPI_V1_MARGIN_LOAN: &str = "/sapi/v1/margin/loan";
 const SAPI_V1_MARGIN_REPAY: &str = "/sapi/v1/margin/repay";
 const SAPI_V1_MARGIN_BORROW_REPAY: &str = "/sapi/v1/margin/borrow-repay";
@@ -197,113 +195,6 @@ impl Margin {
             .await
     }
 
-    // Transfer.
-
-    /// Execute a cross-margin transfer between spot and margin accounts.
-    ///
-    /// # Arguments
-    ///
-    /// * `asset` - Asset to transfer
-    /// * `amount` - Amount to transfer
-    /// * `transfer_type` - Direction of transfer
-    ///
-    /// # Example
-    ///
-    /// ```rust,ignore
-    /// use binance_api_client::MarginTransferType;
-    ///
-    /// // Transfer 100 USDT from spot to margin
-    /// let result = client.margin()
-    ///     .transfer("USDT", "100.0", MarginTransferType::MainToMargin)
-    ///     .await?;
-    /// println!("Transfer ID: {}", result.tran_id);
-    /// ```
-    #[deprecated(
-        note = "`POST /sapi/v1/margin/transfer` was discontinued by Binance. Use `Wallet::universal_transfer` instead."
-    )]
-    pub async fn transfer(
-        &self,
-        asset: &str,
-        amount: &str,
-        transfer_type: MarginTransferType,
-    ) -> Result<TransactionId> {
-        let type_val = match transfer_type {
-            MarginTransferType::MainToMargin => "1",
-            MarginTransferType::MarginToMain => "2",
-        };
-
-        let params: Vec<(&str, String)> = vec![
-            ("asset", asset.to_string()),
-            ("amount", amount.to_string()),
-            ("type", type_val.to_string()),
-        ];
-
-        let params_ref: Vec<(&str, &str)> = params.iter().map(|(k, v)| (*k, v.as_str())).collect();
-        self.client
-            .post_signed(SAPI_V1_MARGIN_TRANSFER, &params_ref)
-            .await
-    }
-
-    /// Execute an isolated margin transfer.
-    ///
-    /// # Arguments
-    ///
-    /// * `asset` - Asset to transfer
-    /// * `symbol` - Isolated margin symbol
-    /// * `amount` - Amount to transfer
-    /// * `trans_from` - Source account type
-    /// * `trans_to` - Destination account type
-    ///
-    /// # Example
-    ///
-    /// ```rust,ignore
-    /// use binance_api_client::IsolatedMarginTransferType;
-    ///
-    /// // Transfer 100 USDT from spot to BTCUSDT isolated margin
-    /// let result = client.margin()
-    ///     .isolated_transfer(
-    ///         "USDT",
-    ///         "BTCUSDT",
-    ///         "100.0",
-    ///         IsolatedMarginTransferType::Spot,
-    ///         IsolatedMarginTransferType::IsolatedMargin,
-    ///     )
-    ///     .await?;
-    /// ```
-    #[deprecated(
-        note = "`POST /sapi/v1/margin/isolated/transfer` was discontinued by Binance. Use `Wallet::universal_transfer` instead."
-    )]
-    pub async fn isolated_transfer(
-        &self,
-        asset: &str,
-        symbol: &str,
-        amount: &str,
-        trans_from: IsolatedMarginTransferType,
-        trans_to: IsolatedMarginTransferType,
-    ) -> Result<TransactionId> {
-        let from_str = match trans_from {
-            IsolatedMarginTransferType::Spot => "SPOT",
-            IsolatedMarginTransferType::IsolatedMargin => "ISOLATED_MARGIN",
-        };
-        let to_str = match trans_to {
-            IsolatedMarginTransferType::Spot => "SPOT",
-            IsolatedMarginTransferType::IsolatedMargin => "ISOLATED_MARGIN",
-        };
-
-        let params: Vec<(&str, String)> = vec![
-            ("asset", asset.to_string()),
-            ("symbol", symbol.to_string()),
-            ("amount", amount.to_string()),
-            ("transFrom", from_str.to_string()),
-            ("transTo", to_str.to_string()),
-        ];
-
-        let params_ref: Vec<(&str, &str)> = params.iter().map(|(k, v)| (*k, v.as_str())).collect();
-        self.client
-            .post_signed(SAPI_V1_MARGIN_ISOLATED_TRANSFER, &params_ref)
-            .await
-    }
-
     // Borrow/Repay.
 
     /// Borrow or repay margin funds using `POST /sapi/v1/margin/borrow-repay`.
@@ -392,75 +283,6 @@ impl Margin {
         let params_ref: Vec<(&str, &str)> = params.iter().map(|(k, v)| (*k, v.as_str())).collect();
         self.client
             .get_signed(SAPI_V1_MARGIN_BORROW_REPAY, &params_ref)
-            .await
-    }
-
-    /// Apply for a margin loan.
-    #[deprecated(
-        note = "`POST /sapi/v1/margin/loan` is deprecated by Binance. Use `borrow_repay` instead."
-    )]
-    pub async fn loan(
-        &self,
-        asset: &str,
-        amount: &str,
-        is_isolated: bool,
-        symbol: Option<&str>,
-    ) -> Result<TransactionId> {
-        let mut params: Vec<(&str, String)> =
-            vec![("asset", asset.to_string()), ("amount", amount.to_string())];
-
-        if is_isolated {
-            params.push(("isIsolated", "TRUE".to_string()));
-            if let Some(s) = symbol {
-                params.push(("symbol", s.to_string()));
-            }
-        }
-
-        let params_ref: Vec<(&str, &str)> = params.iter().map(|(k, v)| (*k, v.as_str())).collect();
-        self.client
-            .post_signed(SAPI_V1_MARGIN_LOAN, &params_ref)
-            .await
-    }
-
-    /// Repay a margin loan.
-    ///
-    /// # Arguments
-    ///
-    /// * `asset` - Asset to repay
-    /// * `amount` - Amount to repay
-    /// * `is_isolated` - Whether this is isolated margin
-    /// * `symbol` - Symbol for isolated margin (required if is_isolated is true)
-    ///
-    /// # Example
-    ///
-    /// ```rust,ignore
-    /// // Repay 0.1 BTC on cross margin
-    /// let result = client.margin().repay("BTC", "0.1", false, None).await?;
-    /// println!("Repay transaction ID: {}", result.tran_id);
-    /// ```
-    #[deprecated(
-        note = "`POST /sapi/v1/margin/repay` is deprecated by Binance. Use `borrow_repay` instead."
-    )]
-    pub async fn repay(
-        &self,
-        asset: &str,
-        amount: &str,
-        is_isolated: bool,
-        symbol: Option<&str>,
-    ) -> Result<TransactionId> {
-        let mut params: Vec<(&str, String)> =
-            vec![("asset", asset.to_string()), ("amount", amount.to_string())];
-
-        if is_isolated {
-            params.push(("isIsolated", "TRUE".to_string()));
-            if let Some(s) = symbol {
-                params.push(("symbol", s.to_string()));
-            }
-        }
-
-        let params_ref: Vec<(&str, &str)> = params.iter().map(|(k, v)| (*k, v.as_str())).collect();
-        self.client
-            .post_signed(SAPI_V1_MARGIN_REPAY, &params_ref)
             .await
     }
 

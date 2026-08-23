@@ -45,7 +45,7 @@ use std::task::{Context, Poll};
 use std::time::{Duration, Instant};
 use tokio::net::TcpStream;
 use tokio::sync::{Mutex, RwLock, mpsc};
-use tokio::time::{interval, sleep, timeout};
+use tokio::time::{sleep, timeout};
 use tokio_tungstenite::{
     MaybeTlsStream, WebSocketStream as TungsteniteStream, connect_async,
     tungstenite::{Bytes, Message},
@@ -77,6 +77,7 @@ const STALE_CONNECTION_SECS: u64 = 60;
 
 /// User data stream keepalive interval (in seconds).
 /// Should be less than 60 minutes (the listen key expiry time).
+#[cfg(feature = "binance-us")]
 const USER_STREAM_KEEPALIVE_SECS: u64 = 30 * 60; // 30 minutes
 
 // WebSocket client.
@@ -141,7 +142,13 @@ impl WebSocketClient {
         self.connect_url(&url).await
     }
 
-    /// Connect to a user data stream.
+    /// Connect to a listenKey user data stream.
+    ///
+    /// Only available with the `binance-us` feature.
+    /// The listenKey endpoints were removed from Binance production on
+    /// 2026-02-20 and remain functional only on Binance.US.
+    /// On Binance production, use
+    /// `WsApiConnection::subscribe_user_data_with_signature` instead.
     ///
     /// # Arguments
     ///
@@ -153,9 +160,7 @@ impl WebSocketClient {
     /// let listen_key = client.user_stream().start().await?;
     /// let mut conn = client.streams().connect_user_stream(&listen_key).await?;
     /// ```
-    #[deprecated(
-        note = "The listenKey endpoints were removed from Binance production on 2026-02-20. Use `WsApiConnection::subscribe_user_data_with_signature` instead. This remains functional only on Binance.US."
-    )]
+    #[cfg(feature = "binance-us")]
     pub async fn connect_user_stream(&self, listen_key: &str) -> Result<WebSocketConnection> {
         let url = format!("{}/ws/{}", self.config.ws_endpoint, listen_key);
         self.connect_url(&url).await
@@ -1344,10 +1349,16 @@ impl Drop for DepthCacheManager {
 
 // User data stream manager.
 
-/// Manages a user data stream with automatic keep-alive.
+/// Manages a listenKey user data stream with automatic keep-alive.
 ///
 /// This manager automatically refreshes the listen key every 30 minutes
 /// to prevent the stream from expiring (listen keys expire after 60 minutes).
+///
+/// Only available with the `binance-us` feature.
+/// The listenKey endpoints were removed from Binance production on
+/// 2026-02-20 and remain functional only on Binance.US.
+/// On Binance production, use
+/// `WsApiConnection::subscribe_user_data_with_signature` instead.
 ///
 /// # Example
 ///
@@ -1370,16 +1381,14 @@ impl Drop for DepthCacheManager {
 ///     }
 /// }
 /// ```
-#[deprecated(
-    note = "The listenKey endpoints were removed from Binance production on 2026-02-20. Use `WsApiConnection::subscribe_user_data_with_signature` instead. This remains functional only on Binance.US."
-)]
+#[cfg(feature = "binance-us")]
 pub struct UserDataStreamManager {
     listen_key: Arc<RwLock<String>>,
     is_stopped: Arc<AtomicBool>,
     event_rx: mpsc::Receiver<Result<WebSocketEvent>>,
 }
 
-#[allow(deprecated)]
+#[cfg(feature = "binance-us")]
 impl UserDataStreamManager {
     /// Create a new user data stream manager.
     ///
@@ -1426,7 +1435,8 @@ impl UserDataStreamManager {
         listen_key: Arc<RwLock<String>>,
         is_stopped: Arc<AtomicBool>,
     ) {
-        let mut interval_timer = interval(Duration::from_secs(USER_STREAM_KEEPALIVE_SECS));
+        let mut interval_timer =
+            tokio::time::interval(Duration::from_secs(USER_STREAM_KEEPALIVE_SECS));
 
         loop {
             interval_timer.tick().await;

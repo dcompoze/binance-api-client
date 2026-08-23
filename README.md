@@ -131,7 +131,7 @@ async fn main() -> binance_api_client::Result<()> {
         .quantity("0.001")
         .build();
     let result = conn.place_order(&order).await?;
-    println!("Order response: {}", result);
+    println!("Order status: {:?}", result.status);
 
     // Subscribe to the user data stream (works with any API key type).
     let subscription_id = conn.subscribe_user_data_with_signature().await?;
@@ -160,7 +160,7 @@ REST API services:
 | `account()` | Orders, order lists (OCO/OTO/OTOCO/OPO/OPOCO), SOR, cancel-replace, amend, trades, commission, filters | Required |
 | `wallet()` | Deposits, withdrawals, transfers, balances, account status, API key permissions | Required |
 | `margin()` | Cross and isolated margin trading, borrow/repay, transfers, interest history | Required |
-| `user_stream()` | listenKey management (deprecated, Binance.US only) | Required |
+| `user_stream()` | listenKey management (requires the `binance-us` feature, functional only on Binance.US) | Required |
 
 WebSocket API (`ws_api()`):
 

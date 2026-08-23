@@ -93,14 +93,14 @@ pub use client::Client;
 pub use config::{Config, ConfigBuilder};
 pub use credentials::{Credentials, SignatureType};
 pub use error::{Error, Result};
-#[allow(deprecated)]
+#[cfg(feature = "binance-us")]
 pub use streams::UserDataStreamManager;
 pub use streams::{
     ConnectionState, DepthCache, DepthCacheConfig, DepthCacheManager, DepthCacheState,
     DepthUpdateResult, ReconnectConfig, ReconnectingWebSocket, WebSocketClient,
     WebSocketConnection, WebSocketEventStream,
 };
-pub use ws_api::{WsApiClient, WsApiConnection, WsApiEvent, WsApiRateLimit};
+pub use ws_api::{WsApiClient, WsApiConnection, WsApiEvent, WsApiRateLimit, WsApiSession};
 
 // Re-export commonly used types
 pub use types::{
@@ -156,7 +156,6 @@ pub use models::{
     IsolatedAssetDetails,
     IsolatedMarginAccountAsset,
     IsolatedMarginAccountDetails,
-    IsolatedMarginTransferType,
     Kline,
     ListenKey,
     LoanRecord,
@@ -169,7 +168,6 @@ pub use models::{
     MarginPairDetails,
     MarginPriceIndex,
     MarginTrade,
-    MarginTransferType,
     MaxBorrowableAmount,
     MaxTransferableAmount,
     MyFilters,
@@ -228,9 +226,9 @@ pub use models::{
 
 // Re-export order builders for convenience
 pub use rest::{
-    CancelReplaceOrder, CancelReplaceOrderBuilder, NewOcoOrder, NewOcoOrderList, NewOpoOrder,
-    NewOpocoOrder, NewOrder, NewOtoOrder, NewOtocoOrder, OcoOrderBuilder, OcoOrderListBuilder,
-    OpoOrderBuilder, OpocoOrderBuilder, OrderBuilder, OtoOrderBuilder, OtocoOrderBuilder,
+    CancelReplaceOrder, CancelReplaceOrderBuilder, NewOcoOrderList, NewOpoOrder, NewOpocoOrder,
+    NewOrder, NewOtoOrder, NewOtocoOrder, OcoOrderListBuilder, OpoOrderBuilder, OpocoOrderBuilder,
+    OrderBuilder, OtoOrderBuilder, OtocoOrderBuilder,
 };
 
 /// Main entry point for the Binance API client.
@@ -440,10 +438,16 @@ impl Binance {
         rest::Market::new(self.client.clone())
     }
 
-    /// Access user data stream API endpoints.
+    /// Access listenKey user data stream API endpoints.
     ///
     /// User data streams provide real-time updates for account balance changes,
     /// order updates, and other account events via WebSocket.
+    ///
+    /// Only available with the `binance-us` feature.
+    /// The listenKey endpoints were removed from Binance production on
+    /// 2026-02-20 and remain functional only on Binance.US.
+    /// On Binance production, use the WebSocket API user data stream
+    /// subscriptions via `ws_api()` instead.
     ///
     /// **Requires authentication.**
     ///
@@ -461,6 +465,7 @@ impl Binance {
     /// // Close when done
     /// client.user_stream().close(&listen_key).await?;
     /// ```
+    #[cfg(feature = "binance-us")]
     pub fn user_stream(&self) -> rest::UserStream {
         rest::UserStream::new(self.client.clone())
     }
@@ -551,9 +556,9 @@ impl Binance {
     /// println!("Max borrowable BTC: {}", max.amount);
     ///
     /// // Transfer to margin account
-    /// use binance_api_client::MarginTransferType;
-    /// let result = client.margin()
-    ///     .transfer("USDT", "100.0", MarginTransferType::MainToMargin)
+    /// use binance_api_client::UniversalTransferType;
+    /// let result = client.wallet()
+    ///     .universal_transfer(UniversalTransferType::MainMargin, "USDT", "100.0", None, None)
     ///     .await?;
     ///
     /// // Borrow

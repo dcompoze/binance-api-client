@@ -240,8 +240,11 @@ async fn main() -> binance_api_client::Result<()> {
     println!("The following operations modify your account and are shown as examples only:\n");
 
     println!("// Transfer from spot to margin");
-    println!("let result = client.margin()");
-    println!("    .transfer(\"USDT\", \"100.0\", MarginTransferType::MainToMargin)");
+    println!("use binance_api_client::UniversalTransferType;");
+    println!("let result = client.wallet()");
+    println!(
+        "    .universal_transfer(UniversalTransferType::MainMargin, \"USDT\", \"100.0\", None, None)"
+    );
     println!("    .await?;\n");
 
     println!("// Borrow funds");
@@ -294,9 +297,11 @@ fn show_example_code() {
     println!("println!(\"Can borrow up to: {{}}\", max.amount);\n");
 
     println!("// Transfer to margin account");
-    println!("use binance_api_client::MarginTransferType;");
-    println!("let tx = client.margin()");
-    println!("    .transfer(\"USDT\", \"100.0\", MarginTransferType::MainToMargin)");
+    println!("use binance_api_client::UniversalTransferType;");
+    println!("let tx = client.wallet()");
+    println!(
+        "    .universal_transfer(UniversalTransferType::MainMargin, \"USDT\", \"100.0\", None, None)"
+    );
     println!("    .await?;\n");
 
     println!("// Borrow funds (cross margin)");
