@@ -86,7 +86,7 @@ pub enum WsApiEvent {
     UserData {
         /// Identifies which subscription the event belongs to.
         subscription_id: Option<u64>,
-        event: WebSocketEvent,
+        event: Box<WebSocketEvent>,
     },
     /// The server is about to shut down.
     /// Reconnect immediately, there is no grace period.
@@ -199,7 +199,7 @@ fn parse_event(value: Value) -> WsApiEvent {
     match serde_json::from_value::<WebSocketEvent>(event.clone()) {
         Ok(parsed) => WsApiEvent::UserData {
             subscription_id,
-            event: parsed,
+            event: Box::new(parsed),
         },
         Err(_) => WsApiEvent::Unknown(value),
     }
@@ -654,7 +654,7 @@ mod tests {
                 event,
             } => {
                 assert_eq!(subscription_id, Some(3));
-                assert!(matches!(event, WebSocketEvent::BalanceUpdate(_)));
+                assert!(matches!(*event, WebSocketEvent::BalanceUpdate(_)));
             }
             other => panic!("Unexpected event: {:?}", other),
         }

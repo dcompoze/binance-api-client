@@ -83,9 +83,9 @@ async fn main() -> binance_api_client::Result<()> {
         OrderType::LimitMaker,
         OrderType::StopLossLimit,
     )
-    .above_price(&format!("{:.2}", take_profit_price))
-    .below_stop_price(&format!("{:.2}", stop_price))
-    .below_price(&format!("{:.2}", stop_limit_price))
+    .above_price(format!("{:.2}", take_profit_price))
+    .below_stop_price(format!("{:.2}", stop_price))
+    .below_price(format!("{:.2}", stop_limit_price))
     .below_time_in_force(TimeInForce::GTC)
     .build();
 

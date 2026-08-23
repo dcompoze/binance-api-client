@@ -375,12 +375,7 @@ impl WebSocketConnection {
     /// skipped. Use `next_with_stream` to also get the stream name on
     /// combined connections.
     pub async fn next(&mut self) -> Option<Result<WebSocketEvent>> {
-        loop {
-            match self.next_with_stream().await? {
-                Ok((_, event)) => return Some(Ok(event)),
-                Err(e) => return Some(Err(e)),
-            }
-        }
+        Some(self.next_with_stream().await?.map(|(_, event)| event))
     }
 
     /// Receive the next WebSocket event together with its stream name.
