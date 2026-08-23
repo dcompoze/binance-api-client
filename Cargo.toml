@@ -1,23 +1,23 @@
 [package]
-name = "binance-api-client"
-version = "0.1.0"
-edition = "2024"
-description = "Async Rust client for Binance Spot REST and WebSocket APIs."
-license = "MIT"
-readme = "README.md"
-rust-version = "1.85"
-repository = "https://github.com/dcompoze/binance-api-client"
-homepage = "https://github.com/dcompoze/binance-api-client"
-documentation = "https://docs.rs/binance-api-client"
-keywords = ["binance", "crypto", "trading", "websocket", "api-client"]
 categories = ["api-bindings", "asynchronous", "web-programming::http-client"]
+description = "Async Rust client for Binance Spot REST and WebSocket APIs."
+documentation = "https://docs.rs/binance-api-client"
+edition = "2024"
+homepage = "https://github.com/dcompoze/binance-api-client"
+keywords = ["binance", "crypto", "trading", "websocket", "api-client"]
+license = "MIT"
+name = "binance-api-client"
+readme = "README.md"
+repository = "https://github.com/dcompoze/binance-api-client"
+rust-version = "1.85"
+version = "0.1.0"
 
 [lib]
 name = "binance_api_client"
 path = "src/lib.rs"
 
 [dependencies]
-base64 = "0.22"
+base64 = "0.23"
 futures = "0.3.31"
 futures-util = "0.3.31"
 hex = "0.4"
@@ -36,7 +36,7 @@ sha2 = "0.10"
 thiserror = "2.0.17"
 tokio = { version = "1.49.0", features = ["rt", "macros"] }
 tokio-stream = "0.1.18"
-tokio-tungstenite = "0.28.0"
+tokio-tungstenite = "0.30.0"
 tracing = "0.1.44"
 url = "2.5.8"
 urlencoding = "2.1.3"

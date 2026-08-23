@@ -246,12 +246,12 @@ async fn main() -> binance_api_client::Result<()> {
 
     println!("// Borrow funds");
     println!("let result = client.margin()");
-    println!("    .loan(\"USDT\", \"50.0\", false, None)  // false = cross margin");
+    println!("    .borrow_repay(\"USDT\", \"50.0\", true, false, None)  // borrow, cross margin");
     println!("    .await?;\n");
 
     println!("// Repay loan");
     println!("let result = client.margin()");
-    println!("    .repay(\"USDT\", \"50.0\", false, None)");
+    println!("    .borrow_repay(\"USDT\", \"50.0\", false, false, None)  // repay, cross margin");
     println!("    .await?;\n");
 
     println!("// Create margin order with auto-borrow");
@@ -300,15 +300,19 @@ fn show_example_code() {
     println!("    .await?;\n");
 
     println!("// Borrow funds (cross margin)");
-    println!("let tx = client.margin().loan(\"USDT\", \"50.0\", false, None).await?;\n");
+    println!(
+        "let tx = client.margin().borrow_repay(\"USDT\", \"50.0\", true, false, None).await?;\n"
+    );
 
     println!("// Borrow funds (isolated margin)");
     println!(
-        "let tx = client.margin().loan(\"USDT\", \"50.0\", true, Some(\"BTCUSDT\")).await?;\n"
+        "let tx = client.margin().borrow_repay(\"USDT\", \"50.0\", true, true, Some(\"BTCUSDT\")).await?;\n"
     );
 
     println!("// Repay loan");
-    println!("let tx = client.margin().repay(\"USDT\", \"50.0\", false, None).await?;\n");
+    println!(
+        "let tx = client.margin().borrow_repay(\"USDT\", \"50.0\", false, false, None).await?;\n"
+    );
 
     println!("// Create margin order with side effect (auto-borrow)");
     println!("use binance_api_client::{{OrderSide, OrderType, TimeInForce, SideEffectType}};");

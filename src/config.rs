@@ -18,6 +18,15 @@ pub const BINANCE_US_REST_API_ENDPOINT: &str = "https://api.binance.us";
 /// Binance.US WebSocket base URL.
 pub const BINANCE_US_WS_ENDPOINT: &str = "wss://stream.binance.us:9443";
 
+/// Production WebSocket API base URL.
+pub const WS_API_ENDPOINT: &str = "wss://ws-api.binance.com:443/ws-api/v3";
+
+/// Testnet WebSocket API base URL.
+pub const TESTNET_WS_API_ENDPOINT: &str = "wss://ws-api.testnet.binance.vision/ws-api/v3";
+
+/// Binance.US WebSocket API base URL.
+pub const BINANCE_US_WS_API_ENDPOINT: &str = "wss://ws-api.binance.us:443/ws-api/v3";
+
 /// Default recv_window in milliseconds.
 pub const DEFAULT_RECV_WINDOW: u64 = 5000;
 
@@ -30,6 +39,9 @@ pub struct Config {
     /// WebSocket base URL.
     pub ws_endpoint: String,
 
+    /// WebSocket API base URL.
+    pub ws_api_endpoint: String,
+
     /// Receive window in milliseconds.
     /// This is the number of milliseconds after the timestamp
     /// that the request is valid for.
@@ -40,6 +52,13 @@ pub struct Config {
 
     /// Whether this is configured for Binance.US.
     pub binance_us: bool,
+
+    /// Send timestamps in microseconds.
+    /// Adds the `X-MBX-TIME-UNIT: MICROSECOND` header to REST requests.
+    pub microsecond_timestamps: bool,
+
+    /// Optional proxy URL for REST requests.
+    pub proxy: Option<String>,
 }
 
 impl Config {
@@ -53,9 +72,12 @@ impl Config {
         Config {
             rest_api_endpoint: TESTNET_REST_API_ENDPOINT.to_string(),
             ws_endpoint: TESTNET_WS_ENDPOINT.to_string(),
+            ws_api_endpoint: TESTNET_WS_API_ENDPOINT.to_string(),
             recv_window: DEFAULT_RECV_WINDOW,
             timeout: None,
             binance_us: false,
+            microsecond_timestamps: false,
+            proxy: None,
         }
     }
 
@@ -64,9 +86,12 @@ impl Config {
         Config {
             rest_api_endpoint: BINANCE_US_REST_API_ENDPOINT.to_string(),
             ws_endpoint: BINANCE_US_WS_ENDPOINT.to_string(),
+            ws_api_endpoint: BINANCE_US_WS_API_ENDPOINT.to_string(),
             recv_window: DEFAULT_RECV_WINDOW,
             timeout: None,
             binance_us: true,
+            microsecond_timestamps: false,
+            proxy: None,
         }
     }
 }
@@ -77,9 +102,12 @@ impl Default for Config {
         Config {
             rest_api_endpoint: REST_API_ENDPOINT.to_string(),
             ws_endpoint: WS_ENDPOINT.to_string(),
+            ws_api_endpoint: WS_API_ENDPOINT.to_string(),
             recv_window: DEFAULT_RECV_WINDOW,
             timeout: None,
             binance_us: false,
+            microsecond_timestamps: false,
+            proxy: None,
         }
     }
 }
@@ -89,9 +117,12 @@ impl Default for Config {
 pub struct ConfigBuilder {
     rest_api_endpoint: Option<String>,
     ws_endpoint: Option<String>,
+    ws_api_endpoint: Option<String>,
     recv_window: Option<u64>,
     timeout: Option<Duration>,
     binance_us: bool,
+    microsecond_timestamps: bool,
+    proxy: Option<String>,
 }
 
 impl ConfigBuilder {
@@ -104,6 +135,12 @@ impl ConfigBuilder {
     /// Set the WebSocket endpoint.
     pub fn ws_endpoint(mut self, endpoint: impl Into<String>) -> Self {
         self.ws_endpoint = Some(endpoint.into());
+        self
+    }
+
+    /// Set the WebSocket API endpoint.
+    pub fn ws_api_endpoint(mut self, endpoint: impl Into<String>) -> Self {
+        self.ws_api_endpoint = Some(endpoint.into());
         self
     }
 
@@ -130,12 +167,28 @@ impl ConfigBuilder {
         self
     }
 
+    /// Send timestamps in microseconds.
+    pub fn microsecond_timestamps(mut self, enabled: bool) -> Self {
+        self.microsecond_timestamps = enabled;
+        self
+    }
+
+    /// Set a proxy URL for REST requests.
+    pub fn proxy(mut self, proxy: impl Into<String>) -> Self {
+        self.proxy = Some(proxy.into());
+        self
+    }
+
     /// Build the configuration.
     pub fn build(self) -> Config {
-        let (default_rest, default_ws) = if self.binance_us {
-            (BINANCE_US_REST_API_ENDPOINT, BINANCE_US_WS_ENDPOINT)
+        let (default_rest, default_ws, default_ws_api) = if self.binance_us {
+            (
+                BINANCE_US_REST_API_ENDPOINT,
+                BINANCE_US_WS_ENDPOINT,
+                BINANCE_US_WS_API_ENDPOINT,
+            )
         } else {
-            (REST_API_ENDPOINT, WS_ENDPOINT)
+            (REST_API_ENDPOINT, WS_ENDPOINT, WS_API_ENDPOINT)
         };
 
         Config {
@@ -143,9 +196,14 @@ impl ConfigBuilder {
                 .rest_api_endpoint
                 .unwrap_or_else(|| default_rest.to_string()),
             ws_endpoint: self.ws_endpoint.unwrap_or_else(|| default_ws.to_string()),
+            ws_api_endpoint: self
+                .ws_api_endpoint
+                .unwrap_or_else(|| default_ws_api.to_string()),
             recv_window: self.recv_window.unwrap_or(DEFAULT_RECV_WINDOW),
             timeout: self.timeout,
             binance_us: self.binance_us,
+            microsecond_timestamps: self.microsecond_timestamps,
+            proxy: self.proxy,
         }
     }
 }
@@ -159,6 +217,7 @@ mod tests {
         let config = Config::default();
         assert_eq!(config.rest_api_endpoint, REST_API_ENDPOINT);
         assert_eq!(config.ws_endpoint, WS_ENDPOINT);
+        assert_eq!(config.ws_api_endpoint, WS_API_ENDPOINT);
         assert_eq!(config.recv_window, DEFAULT_RECV_WINDOW);
         assert!(config.timeout.is_none());
         assert!(!config.binance_us);
@@ -169,6 +228,7 @@ mod tests {
         let config = Config::testnet();
         assert_eq!(config.rest_api_endpoint, TESTNET_REST_API_ENDPOINT);
         assert_eq!(config.ws_endpoint, TESTNET_WS_ENDPOINT);
+        assert_eq!(config.ws_api_endpoint, TESTNET_WS_API_ENDPOINT);
         assert_eq!(config.recv_window, DEFAULT_RECV_WINDOW);
         assert!(!config.binance_us);
     }

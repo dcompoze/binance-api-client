@@ -12,8 +12,8 @@ use crate::Result;
 use crate::error::{BinanceApiError, Error};
 use crate::models::{
     AccountCommission, AccountInfo, Allocation, AmendOrderResponse, CancelOrderResponse,
-    CancelReplaceErrorResponse, CancelReplaceResponse, OcoOrder, Order, OrderAmendment, OrderFull,
-    PreventedMatch, SorOrderTestResponse, UnfilledOrderCount, UserTrade,
+    CancelReplaceErrorResponse, CancelReplaceResponse, MyFilters, OcoOrder, Order, OrderAmendment,
+    OrderFull, PreventedMatch, SorOrderTestResponse, UnfilledOrderCount, UserTrade,
 };
 use crate::types::{
     CancelReplaceMode, CancelRestrictions, OrderRateLimitExceededMode, OrderResponseType,
@@ -28,6 +28,7 @@ const API_V3_ORDER_TEST: &str = "/api/v3/order/test";
 const API_V3_OPEN_ORDERS: &str = "/api/v3/openOrders";
 const API_V3_ALL_ORDERS: &str = "/api/v3/allOrders";
 const API_V3_ORDER_OCO: &str = "/api/v3/order/oco";
+const API_V3_ORDER_LIST_OCO: &str = "/api/v3/orderList/oco";
 const API_V3_ORDER_LIST_OTO: &str = "/api/v3/orderList/oto";
 const API_V3_ORDER_LIST_OTOCO: &str = "/api/v3/orderList/otoco";
 const API_V3_ORDER_LIST_OPO: &str = "/api/v3/orderList/opo";
@@ -44,6 +45,7 @@ const API_V3_SOR_ORDER_TEST: &str = "/api/v3/sor/order/test";
 const API_V3_RATE_LIMIT_ORDER: &str = "/api/v3/rateLimit/order";
 const API_V3_ORDER_AMEND: &str = "/api/v3/order/amend/keepPriority";
 const API_V3_ORDER_AMENDMENTS: &str = "/api/v3/order/amendments";
+const API_V3_MY_FILTERS: &str = "/api/v3/myFilters";
 
 /// Account and trading API client.
 ///
@@ -215,6 +217,20 @@ impl Account {
         self.client
             .get_signed(API_V3_ACCOUNT_COMMISSION, &params_ref)
             .await
+    }
+
+    /// Get the filters relevant to the account on a symbol.
+    ///
+    /// This is the only endpoint that shows whether the account has
+    /// `MAX_ASSET` filters applied to it.
+    ///
+    /// # Arguments
+    ///
+    /// * `symbol` - Trading pair symbol
+    pub async fn my_filters(&self, symbol: &str) -> Result<MyFilters> {
+        let params: Vec<(&str, String)> = vec![("symbol", symbol.to_string())];
+        let params_ref: Vec<(&str, &str)> = params.iter().map(|(k, v)| (*k, v.as_str())).collect();
+        self.client.get_signed(API_V3_MY_FILTERS, &params_ref).await
     }
 
     /// Query unfilled order count for all rate limit intervals.
@@ -664,6 +680,9 @@ impl Account {
     ///
     /// let result = client.account().create_oco(&oco).await?;
     /// ```
+    #[deprecated(
+        note = "`POST /api/v3/order/oco` is deprecated by Binance. Use `create_oco_list` with `POST /api/v3/orderList/oco` instead."
+    )]
     pub async fn create_oco(&self, order: &NewOcoOrder) -> Result<OcoOrder> {
         let params = order.to_params();
         let params_ref: Vec<(&str, &str)> = params
@@ -671,6 +690,39 @@ impl Account {
             .map(|(k, v)| (k.as_str(), v.as_str()))
             .collect();
         self.client.post_signed(API_V3_ORDER_OCO, &params_ref).await
+    }
+
+    /// Create a new OCO order list using `POST /api/v3/orderList/oco`.
+    ///
+    /// This is the current OCO endpoint using above and below order legs.
+    ///
+    /// # Example
+    ///
+    /// ```rust,ignore
+    /// let oco = OcoOrderListBuilder::new(
+    ///     "BTCUSDT",
+    ///     OrderSide::Sell,
+    ///     "1.0",
+    ///     OrderType::LimitMaker,
+    ///     OrderType::StopLossLimit,
+    /// )
+    /// .above_price("55000.00")
+    /// .below_price("47900.00")
+    /// .below_stop_price("48000.00")
+    /// .below_time_in_force(TimeInForce::GTC)
+    /// .build();
+    ///
+    /// let result = client.account().create_oco_list(&oco).await?;
+    /// ```
+    pub async fn create_oco_list(&self, order: &NewOcoOrderList) -> Result<OcoOrder> {
+        let params = order.to_params();
+        let params_ref: Vec<(&str, &str)> = params
+            .iter()
+            .map(|(k, v)| (k.as_str(), v.as_str()))
+            .collect();
+        self.client
+            .post_signed(API_V3_ORDER_LIST_OCO, &params_ref)
+            .await
     }
 
     /// Create a new OTO (One-Triggers-the-Other) order list.
@@ -1255,17 +1307,14 @@ pub struct CancelReplaceOrder {
 }
 
 impl CancelReplaceOrder {
-    fn to_params(&self) -> Vec<(String, String)> {
+    pub(crate) fn to_params(&self) -> Vec<(String, String)> {
         let mut params = vec![
             ("symbol".to_string(), self.symbol.clone()),
             (
                 "side".to_string(),
                 format!("{:?}", self.side).to_uppercase(),
             ),
-            (
-                "type".to_string(),
-                format!("{:?}", self.order_type).to_uppercase(),
-            ),
+            ("type".to_string(), self.order_type.to_string()),
             (
                 "cancelReplaceMode".to_string(),
                 self.cancel_replace_mode.to_string(),
@@ -1451,17 +1500,14 @@ pub struct NewOrder {
 }
 
 impl NewOrder {
-    fn to_params(&self) -> Vec<(String, String)> {
+    pub(crate) fn to_params(&self) -> Vec<(String, String)> {
         let mut params = vec![
             ("symbol".to_string(), self.symbol.clone()),
             (
                 "side".to_string(),
                 format!("{:?}", self.side).to_uppercase(),
             ),
-            (
-                "type".to_string(),
-                format!("{:?}", self.order_type).to_uppercase(),
-            ),
+            ("type".to_string(), self.order_type.to_string()),
         ];
 
         if let Some(ref qty) = self.quantity {
@@ -1605,7 +1651,7 @@ pub struct NewOcoOrder {
 }
 
 impl NewOcoOrder {
-    fn to_params(&self) -> Vec<(String, String)> {
+    pub(crate) fn to_params(&self) -> Vec<(String, String)> {
         let mut params = vec![
             ("symbol".to_string(), self.symbol.clone()),
             (
@@ -1901,23 +1947,17 @@ pub struct NewOtoOrder {
 }
 
 impl NewOtoOrder {
-    fn to_params(&self) -> Vec<(String, String)> {
+    pub(crate) fn to_params(&self) -> Vec<(String, String)> {
         let mut params = vec![
             ("symbol".to_string(), self.symbol.clone()),
-            (
-                "workingType".to_string(),
-                format!("{:?}", self.working_type).to_uppercase(),
-            ),
+            ("workingType".to_string(), self.working_type.to_string()),
             (
                 "workingSide".to_string(),
                 format!("{:?}", self.working_side).to_uppercase(),
             ),
             ("workingPrice".to_string(), self.working_price.clone()),
             ("workingQuantity".to_string(), self.working_quantity.clone()),
-            (
-                "pendingType".to_string(),
-                format!("{:?}", self.pending_type).to_uppercase(),
-            ),
+            ("pendingType".to_string(), self.pending_type.to_string()),
             (
                 "pendingSide".to_string(),
                 format!("{:?}", self.pending_side).to_uppercase(),
@@ -2181,7 +2221,7 @@ pub struct NewOpoOrder {
 }
 
 impl NewOpoOrder {
-    fn to_params(&self) -> Vec<(String, String)> {
+    pub(crate) fn to_params(&self) -> Vec<(String, String)> {
         self.inner.to_params()
     }
 }
@@ -2558,13 +2598,10 @@ pub struct NewOtocoOrder {
 }
 
 impl NewOtocoOrder {
-    fn to_params(&self) -> Vec<(String, String)> {
+    pub(crate) fn to_params(&self) -> Vec<(String, String)> {
         let mut params = vec![
             ("symbol".to_string(), self.symbol.clone()),
-            (
-                "workingType".to_string(),
-                format!("{:?}", self.working_type).to_uppercase(),
-            ),
+            ("workingType".to_string(), self.working_type.to_string()),
             (
                 "workingSide".to_string(),
                 format!("{:?}", self.working_side).to_uppercase(),
@@ -2577,7 +2614,7 @@ impl NewOtocoOrder {
             ),
             (
                 "pendingAboveType".to_string(),
-                format!("{:?}", self.pending_above_type).to_uppercase(),
+                self.pending_above_type.to_string(),
             ),
         ];
 
@@ -2654,10 +2691,7 @@ impl NewOtocoOrder {
             params.push(("pendingAbovePegOffsetValue".to_string(), value.to_string()));
         }
         if let Some(order_type) = self.pending_below_type {
-            params.push((
-                "pendingBelowType".to_string(),
-                format!("{:?}", order_type).to_uppercase(),
-            ));
+            params.push(("pendingBelowType".to_string(), order_type.to_string()));
         }
         if let Some(ref id) = self.pending_below_client_order_id {
             params.push(("pendingBelowClientOrderId".to_string(), id.clone()));
@@ -2949,8 +2983,305 @@ pub struct NewOpocoOrder {
 }
 
 impl NewOpocoOrder {
-    fn to_params(&self) -> Vec<(String, String)> {
+    pub(crate) fn to_params(&self) -> Vec<(String, String)> {
         self.inner.to_params()
+    }
+}
+
+/// New OCO order list for `POST /api/v3/orderList/oco`.
+///
+/// An OCO has an above order and a below order.
+/// One of the orders must be `LIMIT_MAKER`, `TAKE_PROFIT`, or
+/// `TAKE_PROFIT_LIMIT` and the other must be `STOP_LOSS` or
+/// `STOP_LOSS_LIMIT`.
+#[derive(Debug, Clone)]
+pub struct NewOcoOrderList {
+    symbol: String,
+    side: OrderSide,
+    quantity: String,
+    above_type: OrderType,
+    below_type: OrderType,
+    list_client_order_id: Option<String>,
+    above_client_order_id: Option<String>,
+    above_iceberg_qty: Option<String>,
+    above_price: Option<String>,
+    above_stop_price: Option<String>,
+    above_trailing_delta: Option<u64>,
+    above_time_in_force: Option<TimeInForce>,
+    above_strategy_id: Option<u64>,
+    above_strategy_type: Option<i32>,
+    above_peg_price_type: Option<String>,
+    above_peg_offset_type: Option<String>,
+    above_peg_offset_value: Option<i32>,
+    below_client_order_id: Option<String>,
+    below_iceberg_qty: Option<String>,
+    below_price: Option<String>,
+    below_stop_price: Option<String>,
+    below_trailing_delta: Option<u64>,
+    below_time_in_force: Option<TimeInForce>,
+    below_strategy_id: Option<u64>,
+    below_strategy_type: Option<i32>,
+    below_peg_price_type: Option<String>,
+    below_peg_offset_type: Option<String>,
+    below_peg_offset_value: Option<i32>,
+    response_type: Option<OrderResponseType>,
+    self_trade_prevention_mode: Option<String>,
+}
+
+impl NewOcoOrderList {
+    pub(crate) fn to_params(&self) -> Vec<(String, String)> {
+        let mut params = vec![
+            ("symbol".to_string(), self.symbol.clone()),
+            (
+                "side".to_string(),
+                format!("{:?}", self.side).to_uppercase(),
+            ),
+            ("quantity".to_string(), self.quantity.clone()),
+            ("aboveType".to_string(), self.above_type.to_string()),
+            ("belowType".to_string(), self.below_type.to_string()),
+        ];
+
+        let optional_string = [
+            ("listClientOrderId", &self.list_client_order_id),
+            ("aboveClientOrderId", &self.above_client_order_id),
+            ("aboveIcebergQty", &self.above_iceberg_qty),
+            ("abovePrice", &self.above_price),
+            ("aboveStopPrice", &self.above_stop_price),
+            ("abovePegPriceType", &self.above_peg_price_type),
+            ("abovePegOffsetType", &self.above_peg_offset_type),
+            ("belowClientOrderId", &self.below_client_order_id),
+            ("belowIcebergQty", &self.below_iceberg_qty),
+            ("belowPrice", &self.below_price),
+            ("belowStopPrice", &self.below_stop_price),
+            ("belowPegPriceType", &self.below_peg_price_type),
+            ("belowPegOffsetType", &self.below_peg_offset_type),
+            ("selfTradePreventionMode", &self.self_trade_prevention_mode),
+        ];
+        for (key, value) in optional_string {
+            if let Some(value) = value {
+                params.push((key.to_string(), value.clone()));
+            }
+        }
+
+        if let Some(delta) = self.above_trailing_delta {
+            params.push(("aboveTrailingDelta".to_string(), delta.to_string()));
+        }
+        if let Some(tif) = self.above_time_in_force {
+            params.push(("aboveTimeInForce".to_string(), tif.to_string()));
+        }
+        if let Some(id) = self.above_strategy_id {
+            params.push(("aboveStrategyId".to_string(), id.to_string()));
+        }
+        if let Some(st) = self.above_strategy_type {
+            params.push(("aboveStrategyType".to_string(), st.to_string()));
+        }
+        if let Some(v) = self.above_peg_offset_value {
+            params.push(("abovePegOffsetValue".to_string(), v.to_string()));
+        }
+        if let Some(delta) = self.below_trailing_delta {
+            params.push(("belowTrailingDelta".to_string(), delta.to_string()));
+        }
+        if let Some(tif) = self.below_time_in_force {
+            params.push(("belowTimeInForce".to_string(), tif.to_string()));
+        }
+        if let Some(id) = self.below_strategy_id {
+            params.push(("belowStrategyId".to_string(), id.to_string()));
+        }
+        if let Some(st) = self.below_strategy_type {
+            params.push(("belowStrategyType".to_string(), st.to_string()));
+        }
+        if let Some(v) = self.below_peg_offset_value {
+            params.push(("belowPegOffsetValue".to_string(), v.to_string()));
+        }
+        if let Some(resp) = self.response_type {
+            params.push((
+                "newOrderRespType".to_string(),
+                format!("{:?}", resp).to_uppercase(),
+            ));
+        }
+
+        params
+    }
+}
+
+/// Builder for `NewOcoOrderList`.
+#[derive(Debug, Clone)]
+pub struct OcoOrderListBuilder {
+    order: NewOcoOrderList,
+}
+
+impl OcoOrderListBuilder {
+    /// Create a new OCO order list builder.
+    ///
+    /// # Arguments
+    ///
+    /// * `symbol` - Trading pair symbol
+    /// * `side` - Order side for both legs
+    /// * `quantity` - Quantity for both legs
+    /// * `above_type` - Order type of the above leg
+    /// * `below_type` - Order type of the below leg
+    pub fn new(
+        symbol: impl Into<String>,
+        side: OrderSide,
+        quantity: impl Into<String>,
+        above_type: OrderType,
+        below_type: OrderType,
+    ) -> Self {
+        Self {
+            order: NewOcoOrderList {
+                symbol: symbol.into(),
+                side,
+                quantity: quantity.into(),
+                above_type,
+                below_type,
+                list_client_order_id: None,
+                above_client_order_id: None,
+                above_iceberg_qty: None,
+                above_price: None,
+                above_stop_price: None,
+                above_trailing_delta: None,
+                above_time_in_force: None,
+                above_strategy_id: None,
+                above_strategy_type: None,
+                above_peg_price_type: None,
+                above_peg_offset_type: None,
+                above_peg_offset_value: None,
+                below_client_order_id: None,
+                below_iceberg_qty: None,
+                below_price: None,
+                below_stop_price: None,
+                below_trailing_delta: None,
+                below_time_in_force: None,
+                below_strategy_id: None,
+                below_strategy_type: None,
+                below_peg_price_type: None,
+                below_peg_offset_type: None,
+                below_peg_offset_value: None,
+                response_type: None,
+                self_trade_prevention_mode: None,
+            },
+        }
+    }
+
+    pub fn list_client_order_id(mut self, id: impl Into<String>) -> Self {
+        self.order.list_client_order_id = Some(id.into());
+        self
+    }
+
+    pub fn above_client_order_id(mut self, id: impl Into<String>) -> Self {
+        self.order.above_client_order_id = Some(id.into());
+        self
+    }
+
+    pub fn above_iceberg_qty(mut self, qty: impl Into<String>) -> Self {
+        self.order.above_iceberg_qty = Some(qty.into());
+        self
+    }
+
+    pub fn above_price(mut self, price: impl Into<String>) -> Self {
+        self.order.above_price = Some(price.into());
+        self
+    }
+
+    pub fn above_stop_price(mut self, price: impl Into<String>) -> Self {
+        self.order.above_stop_price = Some(price.into());
+        self
+    }
+
+    pub fn above_trailing_delta(mut self, delta: u64) -> Self {
+        self.order.above_trailing_delta = Some(delta);
+        self
+    }
+
+    pub fn above_time_in_force(mut self, tif: TimeInForce) -> Self {
+        self.order.above_time_in_force = Some(tif);
+        self
+    }
+
+    pub fn above_strategy_id(mut self, id: u64) -> Self {
+        self.order.above_strategy_id = Some(id);
+        self
+    }
+
+    pub fn above_strategy_type(mut self, strategy_type: i32) -> Self {
+        self.order.above_strategy_type = Some(strategy_type);
+        self
+    }
+
+    pub fn above_peg_price_type(mut self, peg_price_type: impl Into<String>) -> Self {
+        self.order.above_peg_price_type = Some(peg_price_type.into());
+        self
+    }
+
+    pub fn above_peg_offset(mut self, offset_type: impl Into<String>, value: i32) -> Self {
+        self.order.above_peg_offset_type = Some(offset_type.into());
+        self.order.above_peg_offset_value = Some(value);
+        self
+    }
+
+    pub fn below_client_order_id(mut self, id: impl Into<String>) -> Self {
+        self.order.below_client_order_id = Some(id.into());
+        self
+    }
+
+    pub fn below_iceberg_qty(mut self, qty: impl Into<String>) -> Self {
+        self.order.below_iceberg_qty = Some(qty.into());
+        self
+    }
+
+    pub fn below_price(mut self, price: impl Into<String>) -> Self {
+        self.order.below_price = Some(price.into());
+        self
+    }
+
+    pub fn below_stop_price(mut self, price: impl Into<String>) -> Self {
+        self.order.below_stop_price = Some(price.into());
+        self
+    }
+
+    pub fn below_trailing_delta(mut self, delta: u64) -> Self {
+        self.order.below_trailing_delta = Some(delta);
+        self
+    }
+
+    pub fn below_time_in_force(mut self, tif: TimeInForce) -> Self {
+        self.order.below_time_in_force = Some(tif);
+        self
+    }
+
+    pub fn below_strategy_id(mut self, id: u64) -> Self {
+        self.order.below_strategy_id = Some(id);
+        self
+    }
+
+    pub fn below_strategy_type(mut self, strategy_type: i32) -> Self {
+        self.order.below_strategy_type = Some(strategy_type);
+        self
+    }
+
+    pub fn below_peg_price_type(mut self, peg_price_type: impl Into<String>) -> Self {
+        self.order.below_peg_price_type = Some(peg_price_type.into());
+        self
+    }
+
+    pub fn below_peg_offset(mut self, offset_type: impl Into<String>, value: i32) -> Self {
+        self.order.below_peg_offset_type = Some(offset_type.into());
+        self.order.below_peg_offset_value = Some(value);
+        self
+    }
+
+    pub fn response_type(mut self, response_type: OrderResponseType) -> Self {
+        self.order.response_type = Some(response_type);
+        self
+    }
+
+    pub fn self_trade_prevention_mode(mut self, mode: impl Into<String>) -> Self {
+        self.order.self_trade_prevention_mode = Some(mode.into());
+        self
+    }
+
+    pub fn build(self) -> NewOcoOrderList {
+        self.order
     }
 }
 

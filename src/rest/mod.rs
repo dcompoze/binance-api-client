@@ -10,9 +10,10 @@ pub mod userstream;
 pub mod wallet;
 
 pub use account::{
-    Account, CancelReplaceOrder, CancelReplaceOrderBuilder, NewOcoOrder, NewOpoOrder,
-    NewOpocoOrder, NewOrder, NewOtoOrder, NewOtocoOrder, OcoOrderBuilder, OpoOrderBuilder,
-    OpocoOrderBuilder, OrderBuilder, OtoOrderBuilder, OtocoOrderBuilder,
+    Account, CancelReplaceOrder, CancelReplaceOrderBuilder, NewOcoOrder, NewOcoOrderList,
+    NewOpoOrder, NewOpocoOrder, NewOrder, NewOtoOrder, NewOtocoOrder, OcoOrderBuilder,
+    OcoOrderListBuilder, OpoOrderBuilder, OpocoOrderBuilder, OrderBuilder, OtoOrderBuilder,
+    OtocoOrderBuilder,
 };
 pub use margin::Margin;
 pub use market::Market;

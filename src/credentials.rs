@@ -271,6 +271,12 @@ pub fn get_timestamp() -> Result<u64> {
     Ok(duration.as_millis() as u64)
 }
 
+/// Get the current timestamp in microseconds since Unix epoch.
+pub fn get_timestamp_micros() -> Result<u64> {
+    let duration = SystemTime::now().duration_since(UNIX_EPOCH)?;
+    Ok(duration.as_micros() as u64)
+}
+
 /// Build a query string from key-value pairs.
 pub fn build_query_string<I, K, V>(params: I) -> String
 where
@@ -287,6 +293,13 @@ where
 }
 
 /// Build a signed query string with timestamp and signature.
+///
+/// Since 2026-01-15 Binance requires the payload to be percent-encoded
+/// before the signature is computed.
+/// Keys and values are encoded first, then the encoded payload is signed,
+/// and the same encoded payload is sent on the wire.
+/// The signature itself is also percent-encoded because RSA and Ed25519
+/// signatures are base64 and contain reserved characters.
 pub fn build_signed_query_string<I, K, V>(
     params: I,
     credentials: &Credentials,
@@ -297,31 +310,59 @@ where
     K: AsRef<str>,
     V: AsRef<str>,
 {
-    let timestamp = get_timestamp()?;
+    build_signed_query_string_with(params, credentials, recv_window, 0, false)
+}
 
-    // Build the base query string
+/// Build a signed query string with time offset and time unit control.
+///
+/// `time_offset_ms` is added to the local clock to compensate for clock
+/// drift against the server (see `Client::sync_time`).
+/// When `microseconds` is true the timestamp is sent in microseconds,
+/// matching the `X-MBX-TIME-UNIT: MICROSECOND` header.
+pub fn build_signed_query_string_with<I, K, V>(
+    params: I,
+    credentials: &Credentials,
+    recv_window: u64,
+    time_offset_ms: i64,
+    microseconds: bool,
+) -> Result<String>
+where
+    I: IntoIterator<Item = (K, V)>,
+    K: AsRef<str>,
+    V: AsRef<str>,
+{
+    let timestamp = if microseconds {
+        (get_timestamp_micros()? as i64 + time_offset_ms * 1000) as u64
+    } else {
+        (get_timestamp()? as i64 + time_offset_ms) as u64
+    };
+
     let mut query_parts: Vec<String> = Vec::new();
 
-    // Add recv_window if specified
     if recv_window > 0 {
         query_parts.push(format!("recvWindow={}", recv_window));
     }
 
-    // Add timestamp
     query_parts.push(format!("timestamp={}", timestamp));
 
-    // Add user params
     for (k, v) in params {
         if !k.as_ref().is_empty() {
-            query_parts.push(format!("{}={}", k.as_ref(), v.as_ref()));
+            query_parts.push(format!(
+                "{}={}",
+                urlencoding::encode(k.as_ref()),
+                urlencoding::encode(v.as_ref())
+            ));
         }
     }
 
     let query_string = query_parts.join("&");
 
-    // Sign and append signature
     let signature = credentials.sign(&query_string);
-    Ok(format!("{}&signature={}", query_string, signature))
+    Ok(format!(
+        "{}&signature={}",
+        query_string,
+        urlencoding::encode(&signature)
+    ))
 }
 
 #[cfg(test)]
@@ -410,6 +451,23 @@ mod tests {
         assert!(query.contains("timestamp="));
         assert!(query.contains("symbol=BTCUSDT"));
         assert!(query.contains("signature="));
+    }
+
+    #[test]
+    fn test_build_signed_query_string_encodes_before_signing() {
+        let creds = Credentials::new(
+            "api_key",
+            "NhqPtmdSJYdKjVHjA7PZj4Mge3R5YNiP1e3UZjInClVN65XAbvqqM6A7H5fATj0j",
+        );
+        let params = [("newClientOrderId", "my order+1&x=2")];
+        let query = build_signed_query_string(params, &creds, 0).unwrap();
+
+        // The reserved characters must be encoded in the sent payload.
+        assert!(query.contains("newClientOrderId=my%20order%2B1%26x%3D2"));
+
+        // The signature must be computed over the encoded payload.
+        let (payload, signature) = query.rsplit_once("&signature=").unwrap();
+        assert_eq!(creds.sign(payload), signature);
     }
 
     #[test]

@@ -8,9 +8,9 @@ use serde_json::Value;
 use crate::Result;
 use crate::client::Client;
 use crate::models::{
-    AggTrade, AveragePrice, BookTicker, ExchangeInfo, Kline, OrderBook, RollingWindowTicker,
-    RollingWindowTickerMini, ServerTime, Ticker24h, TickerPrice, Trade, TradingDayTicker,
-    TradingDayTickerMini,
+    AggTrade, AveragePrice, BlockTrade, BookTicker, ExchangeInfo, ExecutionRules, Kline, OrderBook,
+    ReferencePrice, ReferencePriceCalculation, RollingWindowTicker, RollingWindowTickerMini,
+    ServerTime, Ticker24h, TickerPrice, Trade, TradingDayTicker, TradingDayTickerMini,
 };
 use crate::types::{KlineInterval, SymbolStatus, TickerType};
 
@@ -30,6 +30,10 @@ const API_V3_TICKER_TRADING_DAY: &str = "/api/v3/ticker/tradingDay";
 const API_V3_TICKER_PRICE: &str = "/api/v3/ticker/price";
 const API_V3_TICKER_BOOK_TICKER: &str = "/api/v3/ticker/bookTicker";
 const API_V3_TICKER: &str = "/api/v3/ticker";
+const API_V3_EXECUTION_RULES: &str = "/api/v3/executionRules";
+const API_V3_REFERENCE_PRICE: &str = "/api/v3/referencePrice";
+const API_V3_REFERENCE_PRICE_CALCULATION: &str = "/api/v3/referencePrice/calculation";
+const API_V3_HISTORICAL_BLOCK_TRADES: &str = "/api/v3/historicalBlockTrades";
 
 /// Market data API client.
 ///
@@ -104,6 +108,77 @@ impl Market {
         self.client.get(API_V3_EXCHANGE_INFO, Some(&query)).await
     }
 
+    /// Get the execution rules for a symbol.
+    ///
+    /// Pass `None` to get the execution rules for all symbols.
+    ///
+    /// # Example
+    ///
+    /// ```rust,ignore
+    /// let rules = client.market().execution_rules(Some("BTCUSDT")).await?;
+    /// ```
+    pub async fn execution_rules(&self, symbol: Option<&str>) -> Result<ExecutionRules> {
+        match symbol {
+            Some(symbol) => {
+                let query = format!("symbol={}", symbol);
+                self.client.get(API_V3_EXECUTION_RULES, Some(&query)).await
+            }
+            None => self.client.get(API_V3_EXECUTION_RULES, None).await,
+        }
+    }
+
+    /// Get the execution rules for multiple symbols.
+    pub async fn execution_rules_for_symbols(&self, symbols: &[&str]) -> Result<ExecutionRules> {
+        let symbols_json = serde_json::to_string(symbols).unwrap_or_default();
+        let query = format!("symbols={}", urlencoding::encode(&symbols_json));
+        self.client.get(API_V3_EXECUTION_RULES, Some(&query)).await
+    }
+
+    /// Get the current reference price for a symbol.
+    ///
+    /// Returns error `-2043` when the symbol has never had a reference price.
+    /// The `reference_price` field is `None` when no reference price is
+    /// currently set.
+    pub async fn reference_price(&self, symbol: &str) -> Result<ReferencePrice> {
+        let query = format!("symbol={}", symbol);
+        self.client.get(API_V3_REFERENCE_PRICE, Some(&query)).await
+    }
+
+    /// Get how the reference price is calculated for a symbol.
+    ///
+    /// Returns error `-2043` when the reference price is not being calculated.
+    pub async fn reference_price_calculation(
+        &self,
+        symbol: &str,
+    ) -> Result<ReferencePriceCalculation> {
+        let query = format!("symbol={}", symbol);
+        self.client
+            .get(API_V3_REFERENCE_PRICE_CALCULATION, Some(&query))
+            .await
+    }
+
+    /// Get historical block trades.
+    ///
+    /// # Arguments
+    ///
+    /// * `symbol` - Trading pair symbol
+    /// * `from_id` - Block trade ID to fetch from
+    /// * `limit` - Number of entries to return, default 500, maximum 1000
+    pub async fn historical_block_trades(
+        &self,
+        symbol: &str,
+        from_id: u64,
+        limit: Option<u32>,
+    ) -> Result<Vec<BlockTrade>> {
+        let mut query = format!("symbol={}&fromId={}", symbol, from_id);
+        if let Some(limit) = limit {
+            query.push_str(&format!("&limit={}", limit));
+        }
+        self.client
+            .get(API_V3_HISTORICAL_BLOCK_TRADES, Some(&query))
+            .await
+    }
+
     /// Get order book depth.
     ///
     /// # Arguments
@@ -123,6 +198,23 @@ impl Market {
     /// ```
     pub async fn depth(&self, symbol: &str, limit: Option<u16>) -> Result<OrderBook> {
         let mut query = format!("symbol={}", symbol);
+        if let Some(l) = limit {
+            query.push_str(&format!("&limit={}", l));
+        }
+        self.client.get(API_V3_DEPTH, Some(&query)).await
+    }
+
+    /// Get order book depth, requiring the symbol to have the given status.
+    ///
+    /// Returns error `-1220 SYMBOL_DOES_NOT_MATCH_STATUS` on a status mismatch.
+    /// Supported statuses are `TRADING`, `HALT`, and `BREAK`.
+    pub async fn depth_with_symbol_status(
+        &self,
+        symbol: &str,
+        limit: Option<u16>,
+        symbol_status: SymbolStatus,
+    ) -> Result<OrderBook> {
+        let mut query = format!("symbol={}&symbolStatus={}", symbol, symbol_status);
         if let Some(l) = limit {
             query.push_str(&format!("&limit={}", l));
         }
@@ -352,6 +444,15 @@ impl Market {
     /// let ticker = client.market().ticker_24h("BTCUSDT").await?;
     /// println!("Price change: {}%", ticker.price_change_percent);
     /// ```
+    pub async fn ticker_24h_with_symbol_status(
+        &self,
+        symbol: &str,
+        symbol_status: SymbolStatus,
+    ) -> Result<Ticker24h> {
+        let query = format!("symbol={}&symbolStatus={}", symbol, symbol_status);
+        self.client.get(API_V3_TICKER_24HR, Some(&query)).await
+    }
+
     pub async fn ticker_24h(&self, symbol: &str) -> Result<Ticker24h> {
         let query = format!("symbol={}", symbol);
         self.client.get(API_V3_TICKER_24HR, Some(&query)).await
@@ -586,6 +687,15 @@ impl Market {
     /// let price = client.market().price("BTCUSDT").await?;
     /// println!("BTC/USDT: {}", price.price);
     /// ```
+    pub async fn price_with_symbol_status(
+        &self,
+        symbol: &str,
+        symbol_status: SymbolStatus,
+    ) -> Result<TickerPrice> {
+        let query = format!("symbol={}&symbolStatus={}", symbol, symbol_status);
+        self.client.get(API_V3_TICKER_PRICE, Some(&query)).await
+    }
+
     pub async fn price(&self, symbol: &str) -> Result<TickerPrice> {
         let query = format!("symbol={}", symbol);
         self.client.get(API_V3_TICKER_PRICE, Some(&query)).await
@@ -638,6 +748,17 @@ impl Market {
     /// println!("Best bid: {} @ {}", ticker.bid_qty, ticker.bid_price);
     /// println!("Best ask: {} @ {}", ticker.ask_qty, ticker.ask_price);
     /// ```
+    pub async fn book_ticker_with_symbol_status(
+        &self,
+        symbol: &str,
+        symbol_status: SymbolStatus,
+    ) -> Result<BookTicker> {
+        let query = format!("symbol={}&symbolStatus={}", symbol, symbol_status);
+        self.client
+            .get(API_V3_TICKER_BOOK_TICKER, Some(&query))
+            .await
+    }
+
     pub async fn book_ticker(&self, symbol: &str) -> Result<BookTicker> {
         let query = format!("symbol={}", symbol);
         self.client

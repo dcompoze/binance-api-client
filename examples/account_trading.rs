@@ -221,9 +221,9 @@ async fn main() -> binance_api_client::Result<()> {
     println!("=== OCO Order Example (Not Executed) ===\n");
     println!("To create an OCO order:");
     println!("```rust");
-    println!("use binance_api_client::{{OcoOrderBuilder, OrderSide}};");
+    println!("use binance_api_client::{{OcoOrderListBuilder, OrderSide, OrderType}};");
     println!();
-    println!("let oco = OcoOrderBuilder::new(");
+    println!("let oco = OcoOrderListBuilder::new(");
     println!("    \"BTCUSDT\",");
     println!("    OrderSide::Sell,");
     println!("    \"0.001\",      // quantity");
@@ -233,7 +233,7 @@ async fn main() -> binance_api_client::Result<()> {
     println!(".stop_limit_price(\"44900.00\")");
     println!(".build();");
     println!();
-    println!("let result = client.account().create_oco(&oco).await?;");
+    println!("let result = client.account().create_oco_list(&oco).await?;");
     println!("```\n");
 
     println!("=== Example completed successfully! ===");

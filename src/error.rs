@@ -28,6 +28,18 @@ pub enum Error {
     #[error("Binance API error {code}: {message}")]
     Api { code: i32, message: String },
 
+    /// Request was rate limited (HTTP 429) or the IP is banned (HTTP 418).
+    ///
+    /// `retry_after` holds the value of the `Retry-After` header in seconds
+    /// when the server provided one.
+    #[error("Rate limited (banned: {ip_banned}), code {code}: {message}")]
+    RateLimited {
+        code: i32,
+        message: String,
+        retry_after: Option<u64>,
+        ip_banned: bool,
+    },
+
     /// Binance API returned a cancel-replace error response.
     #[error("Binance API cancel-replace error {code}: {message}")]
     CancelReplace {
@@ -99,9 +111,20 @@ impl Error {
         }
     }
 
-    /// Check if this is a rate limit error (code -1003).
+    /// Check if this is a rate limit error (HTTP 429/418 or code -1003).
     pub fn is_rate_limit(&self) -> bool {
-        matches!(self, Error::Api { code: -1003, .. })
+        matches!(
+            self,
+            Error::Api { code: -1003, .. } | Error::RateLimited { .. }
+        )
+    }
+
+    /// Get the `Retry-After` delay in seconds if the server provided one.
+    pub fn retry_after(&self) -> Option<u64> {
+        match self {
+            Error::RateLimited { retry_after, .. } => *retry_after,
+            _ => None,
+        }
     }
 
     /// Check if this is an invalid signature error (code -1022).

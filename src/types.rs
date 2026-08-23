@@ -218,6 +218,8 @@ pub enum SymbolStatus {
     Break,
     /// Pending trading
     PendingTrading,
+    /// Only order cancellation is allowed
+    CancelOnly,
     /// Unknown status
     #[serde(other)]
     Other,
@@ -234,10 +236,80 @@ impl std::fmt::Display for SymbolStatus {
             Self::AuctionMatch => "AUCTION_MATCH",
             Self::Break => "BREAK",
             Self::PendingTrading => "PENDING_TRADING",
+            Self::CancelOnly => "CANCEL_ONLY",
             Self::Other => "OTHER",
         };
         write!(f, "{}", s)
     }
+}
+
+impl std::fmt::Display for OrderType {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let s = match self {
+            Self::Limit => "LIMIT",
+            Self::Market => "MARKET",
+            Self::StopLoss => "STOP_LOSS",
+            Self::StopLossLimit => "STOP_LOSS_LIMIT",
+            Self::TakeProfit => "TAKE_PROFIT",
+            Self::TakeProfitLimit => "TAKE_PROFIT_LIMIT",
+            Self::LimitMaker => "LIMIT_MAKER",
+            Self::Other => "OTHER",
+        };
+        write!(f, "{}", s)
+    }
+}
+
+impl std::fmt::Display for TimeInForce {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let s = match self {
+            Self::GTC => "GTC",
+            Self::IOC => "IOC",
+            Self::FOK => "FOK",
+            Self::GTX => "GTX",
+            Self::Other => "OTHER",
+        };
+        write!(f, "{}", s)
+    }
+}
+
+impl std::fmt::Display for OrderSide {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let s = match self {
+            Self::Buy => "BUY",
+            Self::Sell => "SELL",
+        };
+        write!(f, "{}", s)
+    }
+}
+
+/// Reason an order expired.
+///
+/// Present on order placement responses (`RESULT` and `FULL` types),
+/// order queries for expired orders, and `executionReport` events.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "SCREAMING_SNAKE_CASE")]
+pub enum ExpiryReason {
+    /// The order did not expire
+    None,
+    /// The order was rejected
+    Rejected,
+    /// The order was canceled by the exchange
+    ExchangeCanceled,
+    /// The order expired because the other leg of an OCO triggered
+    OcoTrigger,
+    /// The order expired because the first phase of an OTO completed
+    OtoPhaseOneExpired,
+    /// Unfilled IOC quantity expired
+    UnfilledIocQuantityExpired,
+    /// Unfilled FOK order expired
+    UnfilledFokOrderExpired,
+    /// The order expired due to insufficient liquidity
+    InsufficientLiquidity,
+    /// The order expired because it would execute outside the price range
+    ExecutionRulePriceRangeExceeded,
+    /// Unknown reason
+    #[serde(other)]
+    Other,
 }
 
 /// Symbol permission type.

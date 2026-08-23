@@ -47,6 +47,174 @@ pub enum WebSocketEvent {
     /// OCO order update (user data stream).
     #[serde(rename = "listStatus")]
     ListStatus(ListStatusEvent),
+    /// Average price event.
+    #[serde(rename = "avgPrice")]
+    AvgPrice(AvgPriceEvent),
+    /// Reference price event.
+    #[serde(rename = "referencePrice")]
+    ReferencePrice(ReferencePriceEvent),
+    /// Block trade event.
+    #[serde(rename = "blockTrade")]
+    BlockTrade(BlockTradeEvent),
+    /// Rolling window ticker event, 1 hour window.
+    #[serde(rename = "1hTicker")]
+    RollingWindowTicker1h(RollingWindowTickerEvent),
+    /// Rolling window ticker event, 4 hour window.
+    #[serde(rename = "4hTicker")]
+    RollingWindowTicker4h(RollingWindowTickerEvent),
+    /// Rolling window ticker event, 1 day window.
+    #[serde(rename = "1dTicker")]
+    RollingWindowTicker1d(RollingWindowTickerEvent),
+    /// The user data stream subscription ended (user data stream).
+    #[serde(rename = "eventStreamTerminated")]
+    EventStreamTerminated(EventTimeOnly),
+    /// Spot wallet balance locked or unlocked by an external system (user data stream).
+    #[serde(rename = "externalLockUpdate")]
+    ExternalLockUpdate(ExternalLockUpdateEvent),
+    /// The server is about to shut down, reconnect immediately.
+    #[serde(rename = "serverShutdown")]
+    ServerShutdown(EventTimeOnly),
+    /// Unknown event type.
+    #[serde(other)]
+    Unknown,
+}
+
+/// Event payload carrying only an event time.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct EventTimeOnly {
+    /// Event time.
+    #[serde(rename = "E")]
+    pub event_time: u64,
+}
+
+/// Average price event.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct AvgPriceEvent {
+    /// Event time.
+    #[serde(rename = "E")]
+    pub event_time: u64,
+    /// Symbol.
+    #[serde(rename = "s")]
+    pub symbol: String,
+    /// Average price interval.
+    #[serde(rename = "i")]
+    pub interval: String,
+    /// Average price.
+    #[serde(rename = "w", with = "string_or_float")]
+    pub average_price: f64,
+    /// Last trade time.
+    #[serde(rename = "T")]
+    pub last_trade_time: u64,
+}
+
+/// Reference price event.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ReferencePriceEvent {
+    /// Symbol.
+    #[serde(rename = "s")]
+    pub symbol: String,
+    /// Reference price, `None` when no reference price is set.
+    #[serde(rename = "r")]
+    pub reference_price: Option<String>,
+    /// Engine timestamp when the reference price was valid.
+    #[serde(rename = "t")]
+    pub timestamp: u64,
+}
+
+/// Block trade event.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct BlockTradeEvent {
+    /// Event time.
+    #[serde(rename = "E")]
+    pub event_time: u64,
+    /// Symbol.
+    #[serde(rename = "s")]
+    pub symbol: String,
+    /// Block trade ID.
+    #[serde(rename = "t")]
+    pub trade_id: u64,
+    /// Price.
+    #[serde(rename = "p", with = "string_or_float")]
+    pub price: f64,
+    /// Quantity.
+    #[serde(rename = "q", with = "string_or_float")]
+    pub quantity: f64,
+    /// Trade time.
+    #[serde(rename = "T")]
+    pub trade_time: u64,
+    /// Is the buyer the maker.
+    #[serde(rename = "m")]
+    pub is_buyer_maker: bool,
+}
+
+/// Rolling window ticker event.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct RollingWindowTickerEvent {
+    /// Event time.
+    #[serde(rename = "E")]
+    pub event_time: u64,
+    /// Symbol.
+    #[serde(rename = "s")]
+    pub symbol: String,
+    /// Price change.
+    #[serde(rename = "p", with = "string_or_float")]
+    pub price_change: f64,
+    /// Price change percent.
+    #[serde(rename = "P", with = "string_or_float")]
+    pub price_change_percent: f64,
+    /// Open price.
+    #[serde(rename = "o", with = "string_or_float")]
+    pub open_price: f64,
+    /// High price.
+    #[serde(rename = "h", with = "string_or_float")]
+    pub high_price: f64,
+    /// Low price.
+    #[serde(rename = "l", with = "string_or_float")]
+    pub low_price: f64,
+    /// Last price.
+    #[serde(rename = "c", with = "string_or_float")]
+    pub last_price: f64,
+    /// Weighted average price.
+    #[serde(rename = "w", with = "string_or_float")]
+    pub weighted_avg_price: f64,
+    /// Total traded base asset volume.
+    #[serde(rename = "v", with = "string_or_float")]
+    pub volume: f64,
+    /// Total traded quote asset volume.
+    #[serde(rename = "q", with = "string_or_float")]
+    pub quote_volume: f64,
+    /// Statistics open time.
+    #[serde(rename = "O")]
+    pub open_time: u64,
+    /// Statistics close time.
+    #[serde(rename = "C")]
+    pub close_time: u64,
+    /// First trade ID.
+    #[serde(rename = "F")]
+    pub first_trade_id: i64,
+    /// Last trade ID.
+    #[serde(rename = "L")]
+    pub last_trade_id: i64,
+    /// Total number of trades.
+    #[serde(rename = "n")]
+    pub trade_count: u64,
+}
+
+/// External lock update event.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ExternalLockUpdateEvent {
+    /// Event time.
+    #[serde(rename = "E")]
+    pub event_time: u64,
+    /// Asset.
+    #[serde(rename = "a")]
+    pub asset: String,
+    /// Locked balance delta.
+    #[serde(rename = "d", with = "string_or_float")]
+    pub delta: f64,
+    /// Transaction time.
+    #[serde(rename = "T")]
+    pub transaction_time: u64,
 }
 
 /// Aggregate trade event.
@@ -484,6 +652,21 @@ pub struct ExecutionReportEvent {
     /// Quote order quantity.
     #[serde(rename = "Q", with = "string_or_float")]
     pub quote_order_quantity: f64,
+    /// Reason the order expired, present on expired orders.
+    #[serde(rename = "eR", default, skip_serializing_if = "Option::is_none")]
+    pub expiry_reason: Option<crate::types::ExpiryReason>,
+    /// Pegged price type.
+    #[serde(rename = "gP", default, skip_serializing_if = "Option::is_none")]
+    pub peg_price_type: Option<String>,
+    /// Pegged offset type.
+    #[serde(rename = "gOT", default, skip_serializing_if = "Option::is_none")]
+    pub peg_offset_type: Option<String>,
+    /// Pegged offset value.
+    #[serde(rename = "gOV", default, skip_serializing_if = "Option::is_none")]
+    pub peg_offset_value: Option<i64>,
+    /// Current pegged price.
+    #[serde(rename = "gp", default, skip_serializing_if = "Option::is_none")]
+    pub pegged_price: Option<String>,
 }
 
 /// OCO list status event (user data stream).

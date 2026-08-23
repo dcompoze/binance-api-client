@@ -6,8 +6,8 @@
 //! # Features
 //!
 //! - Full coverage of Binance Spot REST API
+//! - WebSocket API client for trading, queries, and user data streams
 //! - WebSocket support for real-time market data streams
-//! - User data stream support for account updates
 //! - Automatic request signing for authenticated endpoints
 //! - Production and testnet environment support
 //! - Binance.US support
@@ -78,32 +78,36 @@
     unused_import_braces
 )]
 
-pub mod rest;
 pub mod client;
 pub mod config;
 pub mod credentials;
 pub mod error;
 pub mod models;
+pub mod rest;
+pub mod streams;
 pub mod types;
-pub mod ws;
+pub mod ws_api;
 
 // Re-export main types at crate root
 pub use client::Client;
 pub use config::{Config, ConfigBuilder};
 pub use credentials::{Credentials, SignatureType};
 pub use error::{Error, Result};
-pub use ws::{
+#[allow(deprecated)]
+pub use streams::UserDataStreamManager;
+pub use streams::{
     ConnectionHealthMonitor, ConnectionState, DepthCache, DepthCacheConfig, DepthCacheManager,
-    DepthCacheState, ReconnectConfig, ReconnectingWebSocket, UserDataStreamManager,
-    WebSocketClient, WebSocketConnection, WebSocketEventStream,
+    DepthCacheState, ReconnectConfig, ReconnectingWebSocket, WebSocketClient, WebSocketConnection,
+    WebSocketEventStream,
 };
+pub use ws_api::{WsApiClient, WsApiConnection, WsApiEvent, WsApiRateLimit};
 
 // Re-export commonly used types
 pub use types::{
     AccountType, CancelReplaceMode, CancelReplaceResult, CancelRestrictions, ContingencyType,
-    ExecutionType, KlineInterval, OcoOrderStatus, OcoStatus, OrderRateLimitExceededMode,
-    OrderResponseType, OrderSide, OrderStatus, OrderType, RateLimitInterval, RateLimitType,
-    SymbolPermission, SymbolStatus, TickerType, TimeInForce,
+    ExecutionType, ExpiryReason, KlineInterval, OcoOrderStatus, OcoStatus,
+    OrderRateLimitExceededMode, OrderResponseType, OrderSide, OrderStatus, OrderType,
+    RateLimitInterval, RateLimitType, SymbolPermission, SymbolStatus, TickerType, TimeInForce,
 };
 
 // Re-export commonly used models
@@ -127,6 +131,7 @@ pub use models::{
     AveragePrice,
     Balance,
     // Margin models
+    BlockTrade,
     BnbBurnStatus,
     BookTicker,
     CancelOrderResponse,
@@ -141,6 +146,8 @@ pub use models::{
     DepositRecord,
     DepositStatus,
     ExchangeInfo,
+    ExecutionRule,
+    ExecutionRules,
     Fill,
     FundingAsset,
     InterestHistoryRecord,
@@ -165,6 +172,7 @@ pub use models::{
     MarginTransferType,
     MaxBorrowableAmount,
     MaxTransferableAmount,
+    MyFilters,
     OcoOrder,
     OcoOrderDetail,
     OcoOrderReport,
@@ -179,6 +187,8 @@ pub use models::{
     PreventedMatch,
     RateLimit,
     RecordsQueryResult,
+    ReferencePrice,
+    ReferencePriceCalculation,
     RepayRecord,
     RollingWindowTicker,
     RollingWindowTickerMini,
@@ -187,6 +197,7 @@ pub use models::{
     SorOrderCommissionRates,
     SorOrderTestResponse,
     Symbol,
+    SymbolExecutionRules,
     SymbolFilter,
     SystemStatus,
     Ticker24h,
@@ -216,9 +227,9 @@ pub use models::{
 
 // Re-export order builders for convenience
 pub use rest::{
-    CancelReplaceOrder, CancelReplaceOrderBuilder, NewOcoOrder, NewOpoOrder, NewOpocoOrder,
-    NewOrder, NewOtoOrder, NewOtocoOrder, OcoOrderBuilder, OpoOrderBuilder, OpocoOrderBuilder,
-    OrderBuilder, OtoOrderBuilder, OtocoOrderBuilder,
+    CancelReplaceOrder, CancelReplaceOrderBuilder, NewOcoOrder, NewOcoOrderList, NewOpoOrder,
+    NewOpocoOrder, NewOrder, NewOtoOrder, NewOtocoOrder, OcoOrderBuilder, OcoOrderListBuilder,
+    OpoOrderBuilder, OpocoOrderBuilder, OrderBuilder, OtoOrderBuilder, OtocoOrderBuilder,
 };
 
 /// Main entry point for the Binance API client.
@@ -545,17 +556,17 @@ impl Binance {
     ///     .await?;
     ///
     /// // Borrow
-    /// let loan = client.margin().loan("USDT", "50.0", false, None).await?;
+    /// let loan = client.margin().borrow_repay("USDT", "50.0", true, false, None).await?;
     /// ```
     pub fn margin(&self) -> rest::Margin {
         rest::Margin::new(self.client.clone())
     }
 
-    /// Access WebSocket streaming API.
+    /// Access WebSocket market data streams.
     ///
-    /// The WebSocket client provides real-time market data streams including
-    /// trades, klines, tickers, and order book updates. It also supports
-    /// user data streams for account updates when connected with a listen key.
+    /// The stream client provides real-time market data streams including
+    /// trades, klines, tickers, and order book updates.
+    /// For trading and user data streams over websocket, use `ws_api`.
     ///
     /// # Example
     ///
@@ -563,7 +574,7 @@ impl Binance {
     /// use binance_api_client::Binance;
     ///
     /// let client = Binance::new_unauthenticated()?;
-    /// let ws = client.websocket();
+    /// let ws = client.streams();
     ///
     /// // Connect to aggregate trade stream
     /// let stream_name = ws.agg_trade_stream("btcusdt");
@@ -574,8 +585,29 @@ impl Binance {
     ///     println!("{:?}", event?);
     /// }
     /// ```
-    pub fn websocket(&self) -> ws::WebSocketClient {
-        ws::WebSocketClient::new(self.client.config().clone())
+    pub fn streams(&self) -> streams::WebSocketClient {
+        streams::WebSocketClient::new(self.client.config().clone())
+    }
+
+    /// Access the WebSocket API.
+    ///
+    /// The WebSocket API provides trading, account queries, and user data
+    /// stream subscriptions over a single websocket connection.
+    /// User data streams are only available through this API since the
+    /// listenKey endpoints were removed from service.
+    ///
+    /// # Example
+    ///
+    /// ```rust,ignore
+    /// let client = Binance::new("api_key", "secret_key")?;
+    /// let conn = client.ws_api().connect().await?;
+    /// let subscription_id = conn.subscribe_user_data_with_signature().await?;
+    /// ```
+    pub fn ws_api(&self) -> ws_api::WsApiClient {
+        ws_api::WsApiClient::new(
+            self.client.config().clone(),
+            self.client.credentials().cloned(),
+        )
     }
 }
 

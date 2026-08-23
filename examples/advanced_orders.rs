@@ -21,7 +21,7 @@
 //! Run with: cargo run --example advanced_orders
 
 use binance_api_client::{
-    Binance, CancelReplaceMode, CancelReplaceOrderBuilder, OcoOrderBuilder, OrderBuilder,
+    Binance, CancelReplaceMode, CancelReplaceOrderBuilder, OcoOrderListBuilder, OrderBuilder,
     OrderSide, OrderType, OtoOrderBuilder, OtocoOrderBuilder, TimeInForce,
 };
 
@@ -76,15 +76,17 @@ async fn main() -> binance_api_client::Result<()> {
     println!("OCO combines a limit order (take profit) and a stop-loss order.");
     println!("When one fills, the other is automatically canceled.\n");
 
-    let oco = OcoOrderBuilder::new(
+    let oco = OcoOrderListBuilder::new(
         symbol,
-        OrderSide::Sell,                      // Selling BTC
-        "0.001",                              // Quantity
-        &format!("{:.2}", take_profit_price), // Take profit (limit price)
-        &format!("{:.2}", stop_price),        // Stop price
+        OrderSide::Sell,
+        "0.001",
+        OrderType::LimitMaker,
+        OrderType::StopLossLimit,
     )
-    .stop_limit_price(&format!("{:.2}", stop_limit_price))
-    .stop_limit_time_in_force(TimeInForce::GTC)
+    .above_price(&format!("{:.2}", take_profit_price))
+    .below_stop_price(&format!("{:.2}", stop_price))
+    .below_price(&format!("{:.2}", stop_limit_price))
+    .below_time_in_force(TimeInForce::GTC)
     .build();
 
     println!("OCO Order:");
@@ -95,7 +97,7 @@ async fn main() -> binance_api_client::Result<()> {
 
     // Place the OCO order (will fail if no balance, but shows the API)
     print!("Placing OCO order... ");
-    match client.account().create_oco(&oco).await {
+    match client.account().create_oco_list(&oco).await {
         Ok(result) => {
             println!("Success! Order List ID: {}", result.order_list_id);
             // Cancel it immediately for cleanup
@@ -295,18 +297,22 @@ fn show_example_code() {
     // OCO
     println!("// --- OCO (One-Cancels-the-Other) ---");
     println!("// Combines take-profit and stop-loss in one order");
-    println!("use binance_api_client::{{OcoOrderBuilder, OrderSide, TimeInForce}};\n");
-    println!("let oco = OcoOrderBuilder::new(");
+    println!(
+        "use binance_api_client::{{OcoOrderListBuilder, OrderSide, OrderType, TimeInForce}};\n"
+    );
+    println!("let oco = OcoOrderListBuilder::new(");
     println!("    \"BTCUSDT\",");
-    println!("    OrderSide::Sell,     // Exit side");
-    println!("    \"0.001\",            // Quantity");
-    println!("    \"70000.00\",         // Take profit (limit price)");
-    println!("    \"60000.00\",         // Stop price");
+    println!("    OrderSide::Sell,             // Exit side");
+    println!("    \"0.001\",                    // Quantity");
+    println!("    OrderType::LimitMaker,       // Above leg (take profit)");
+    println!("    OrderType::StopLossLimit,    // Below leg (stop loss)");
     println!(")");
-    println!(".stop_limit_price(\"59900.00\")  // Stop limit price");
-    println!(".stop_limit_time_in_force(TimeInForce::GTC)");
+    println!(".above_price(\"70000.00\")       // Take profit price");
+    println!(".below_stop_price(\"60000.00\")  // Stop trigger");
+    println!(".below_price(\"59900.00\")       // Stop limit price");
+    println!(".below_time_in_force(TimeInForce::GTC)");
     println!(".build();\n");
-    println!("let result = client.account().create_oco(&oco).await?;\n");
+    println!("let result = client.account().create_oco_list(&oco).await?;\n");
 
     // OTO
     println!("// --- OTO (One-Triggers-the-Other) ---");

@@ -1,3 +1,8 @@
+use std::collections::HashMap;
+use std::sync::Arc;
+use std::sync::Mutex;
+use std::sync::atomic::{AtomicI64, Ordering};
+
 use reqwest::StatusCode;
 use reqwest::header::{CONTENT_TYPE, HeaderMap, HeaderName, HeaderValue, USER_AGENT};
 use reqwest_middleware::{ClientBuilder, ClientWithMiddleware};
@@ -6,15 +11,26 @@ use reqwest_tracing::TracingMiddleware;
 use serde::de::DeserializeOwned;
 
 use crate::config::Config;
-use crate::credentials::{Credentials, build_signed_query_string};
+use crate::credentials::{Credentials, build_signed_query_string_with, get_timestamp};
 use crate::error::{BinanceApiError, Error, Result};
 
 /// HTTP client for Binance REST API.
 #[derive(Clone)]
 pub struct Client {
+    /// Client without retries, used for state-changing requests.
+    ///
+    /// Retrying a POST/PUT/DELETE that timed out mid-flight can double-submit
+    /// an order, so these requests are never retried automatically.
     http: ClientWithMiddleware,
+    /// Client with transient-error retries, used for idempotent GET requests.
+    http_retry: ClientWithMiddleware,
     config: Config,
     credentials: Option<Credentials>,
+    /// Server time offset in milliseconds, applied to request timestamps.
+    time_offset: Arc<AtomicI64>,
+    /// Rate limit usage reported by `X-MBX-USED-WEIGHT-*` and
+    /// `X-MBX-ORDER-COUNT-*` response headers, keyed by header name.
+    rate_limit_usage: Arc<Mutex<HashMap<String, u64>>>,
 }
 
 impl Client {
@@ -35,20 +51,29 @@ impl Client {
             builder = builder.timeout(timeout);
         }
 
+        if let Some(ref proxy) = config.proxy {
+            builder = builder.proxy(reqwest::Proxy::all(proxy)?);
+        }
+
         let reqwest_client = builder.build()?;
 
-        // Set up retry policy for transient errors
-        let retry_policy = ExponentialBackoff::builder().build_with_max_retries(3);
+        let http = ClientBuilder::new(reqwest_client.clone())
+            .with(TracingMiddleware::default())
+            .build();
 
-        let http = ClientBuilder::new(reqwest_client)
+        let retry_policy = ExponentialBackoff::builder().build_with_max_retries(3);
+        let http_retry = ClientBuilder::new(reqwest_client)
             .with(TracingMiddleware::default())
             .with(RetryTransientMiddleware::new_with_policy(retry_policy))
             .build();
 
         Ok(Self {
             http,
+            http_retry,
             config,
             credentials,
+            time_offset: Arc::new(AtomicI64::new(0)),
+            rate_limit_usage: Arc::new(Mutex::new(HashMap::new())),
         })
     }
 
@@ -62,6 +87,70 @@ impl Client {
         self.credentials.is_some()
     }
 
+    /// Get the credentials, if configured.
+    pub fn credentials(&self) -> Option<&Credentials> {
+        self.credentials.as_ref()
+    }
+
+    /// Synchronize the local clock with the server.
+    ///
+    /// Computes the offset between server time and local time and applies
+    /// it to all subsequent signed request timestamps.
+    /// Prevents `-1021` errors when the local clock drifts.
+    pub async fn sync_time(&self) -> Result<i64> {
+        #[derive(serde::Deserialize)]
+        #[serde(rename_all = "camelCase")]
+        struct ServerTimeOnly {
+            server_time: i64,
+        }
+        let url = format!("{}/api/v3/time", self.config.rest_api_endpoint);
+        let response = self.http_retry.get(&url).send().await?;
+        let server: ServerTimeOnly = self.handle_response(response).await?;
+        let offset = server.server_time - get_timestamp()? as i64;
+        self.time_offset.store(offset, Ordering::Relaxed);
+        Ok(offset)
+    }
+
+    /// Get the current server time offset in milliseconds.
+    pub fn time_offset(&self) -> i64 {
+        self.time_offset.load(Ordering::Relaxed)
+    }
+
+    /// Get the most recent rate limit usage reported by the server.
+    ///
+    /// Keys are lowercase response header names such as
+    /// `x-mbx-used-weight-1m` and `x-mbx-order-count-10s`.
+    pub fn rate_limit_usage(&self) -> HashMap<String, u64> {
+        self.rate_limit_usage.lock().unwrap().clone()
+    }
+
+    /// SAPI endpoints do not exist on the spot testnet.
+    fn check_sapi_supported(&self, endpoint: &str) -> Result<()> {
+        if endpoint.starts_with("/sapi/")
+            && self
+                .config
+                .rest_api_endpoint
+                .contains("testnet.binance.vision")
+        {
+            return Err(Error::InvalidConfig(
+                "SAPI endpoints (wallet, margin) are not available on the spot testnet".to_string(),
+            ));
+        }
+        Ok(())
+    }
+
+    fn record_rate_limit_headers(&self, headers: &HeaderMap) {
+        let mut usage = self.rate_limit_usage.lock().unwrap();
+        for (name, value) in headers {
+            let name = name.as_str();
+            if name.starts_with("x-mbx-used-weight") || name.starts_with("x-mbx-order-count") {
+                if let Some(count) = value.to_str().ok().and_then(|v| v.parse::<u64>().ok()) {
+                    usage.insert(name.to_string(), count);
+                }
+            }
+        }
+    }
+
     /// Make an unsigned GET request (for public endpoints).
     pub async fn get<T: DeserializeOwned>(&self, endpoint: &str, query: Option<&str>) -> Result<T> {
         let url = match query {
@@ -69,7 +158,7 @@ impl Client {
             None => format!("{}{}", self.config.rest_api_endpoint, endpoint),
         };
 
-        let response = self.http.get(&url).send().await?;
+        let response = self.http_retry.get(&url).send().await?;
         self.handle_response(response).await
     }
 
@@ -114,7 +203,7 @@ impl Client {
         };
 
         let response = self
-            .http
+            .http_retry
             .get(&url)
             .headers(self.build_auth_headers(credentials)?)
             .send()
@@ -134,16 +223,19 @@ impl Client {
             .as_ref()
             .ok_or(Error::AuthenticationRequired)?;
 
-        let query = build_signed_query_string(
+        let query = build_signed_query_string_with(
             params.iter().copied(),
             credentials,
             self.config.recv_window,
+            self.time_offset.load(Ordering::Relaxed),
+            self.config.microsecond_timestamps,
         )?;
+        self.check_sapi_supported(endpoint)?;
 
         let url = format!("{}{}?{}", self.config.rest_api_endpoint, endpoint, query);
 
         let response = self
-            .http
+            .http_retry
             .get(&url)
             .headers(self.build_auth_headers(credentials)?)
             .send()
@@ -163,11 +255,14 @@ impl Client {
             .as_ref()
             .ok_or(Error::AuthenticationRequired)?;
 
-        let query = build_signed_query_string(
+        let query = build_signed_query_string_with(
             params.iter().copied(),
             credentials,
             self.config.recv_window,
+            self.time_offset.load(Ordering::Relaxed),
+            self.config.microsecond_timestamps,
         )?;
+        self.check_sapi_supported(endpoint)?;
 
         let url = format!("{}{}?{}", self.config.rest_api_endpoint, endpoint, query);
 
@@ -192,11 +287,14 @@ impl Client {
             .as_ref()
             .ok_or(Error::AuthenticationRequired)?;
 
-        let query = build_signed_query_string(
+        let query = build_signed_query_string_with(
             params.iter().copied(),
             credentials,
             self.config.recv_window,
+            self.time_offset.load(Ordering::Relaxed),
+            self.config.microsecond_timestamps,
         )?;
+        self.check_sapi_supported(endpoint)?;
 
         let url = format!("{}{}?{}", self.config.rest_api_endpoint, endpoint, query);
 
@@ -221,11 +319,14 @@ impl Client {
             .as_ref()
             .ok_or(Error::AuthenticationRequired)?;
 
-        let query = build_signed_query_string(
+        let query = build_signed_query_string_with(
             params.iter().copied(),
             credentials,
             self.config.recv_window,
+            self.time_offset.load(Ordering::Relaxed),
+            self.config.microsecond_timestamps,
         )?;
+        self.check_sapi_supported(endpoint)?;
 
         let url = format!("{}{}?{}", self.config.rest_api_endpoint, endpoint, query);
 
@@ -250,11 +351,14 @@ impl Client {
             .as_ref()
             .ok_or(Error::AuthenticationRequired)?;
 
-        let query = build_signed_query_string(
+        let query = build_signed_query_string_with(
             params.iter().copied(),
             credentials,
             self.config.recv_window,
+            self.time_offset.load(Ordering::Relaxed),
+            self.config.microsecond_timestamps,
         )?;
+        self.check_sapi_supported(endpoint)?;
 
         let url = format!("{}{}?{}", self.config.rest_api_endpoint, endpoint, query);
 
@@ -366,11 +470,20 @@ impl Client {
 
     fn build_auth_headers(&self, credentials: &Credentials) -> Result<HeaderMap> {
         let mut headers = HeaderMap::new();
-        headers.insert(USER_AGENT, HeaderValue::from_static("binance-api-client-rs"));
+        headers.insert(
+            USER_AGENT,
+            HeaderValue::from_static("binance-api-client-rs"),
+        );
         headers.insert(
             HeaderName::from_static("x-mbx-apikey"),
             HeaderValue::from_str(credentials.api_key())?,
         );
+        if self.config.microsecond_timestamps {
+            headers.insert(
+                HeaderName::from_static("x-mbx-time-unit"),
+                HeaderValue::from_static("MICROSECOND"),
+            );
+        }
         Ok(headers)
     }
 
@@ -384,27 +497,45 @@ impl Client {
     }
 
     async fn handle_response<T: DeserializeOwned>(&self, response: reqwest::Response) -> Result<T> {
-        match response.status() {
-            StatusCode::OK => Ok(response.json().await?),
-            StatusCode::INTERNAL_SERVER_ERROR => Err(Error::Api {
-                code: 500,
-                message: "Internal server error".to_string(),
-            }),
-            StatusCode::SERVICE_UNAVAILABLE => Err(Error::Api {
-                code: 503,
-                message: "Service unavailable".to_string(),
-            }),
-            StatusCode::UNAUTHORIZED => Err(Error::Api {
-                code: 401,
-                message: "Unauthorized".to_string(),
-            }),
-            StatusCode::BAD_REQUEST | StatusCode::FORBIDDEN | StatusCode::TOO_MANY_REQUESTS => {
-                let error: BinanceApiError = response.json().await?;
-                Err(Error::from_binance_error(error))
-            }
-            status => Err(Error::Api {
+        self.record_rate_limit_headers(response.headers());
+        let status = response.status();
+        if status == StatusCode::OK {
+            return Ok(response.json().await?);
+        }
+
+        let retry_after = response
+            .headers()
+            .get(reqwest::header::RETRY_AFTER)
+            .and_then(|v| v.to_str().ok())
+            .and_then(|v| v.parse::<u64>().ok());
+
+        // Binance returns a `{code, msg}` body on most error statuses.
+        // Keep the raw text as the message when the body is not in that shape.
+        let body = response.text().await.unwrap_or_default();
+        let api_error: Option<BinanceApiError> = serde_json::from_str(&body).ok();
+
+        if status == StatusCode::TOO_MANY_REQUESTS || status == StatusCode::IM_A_TEAPOT {
+            let (code, message) = match api_error {
+                Some(e) => (e.code, e.msg),
+                None => (status.as_u16() as i32, body),
+            };
+            return Err(Error::RateLimited {
+                code,
+                message,
+                retry_after,
+                ip_banned: status == StatusCode::IM_A_TEAPOT,
+            });
+        }
+
+        match api_error {
+            Some(error) => Err(Error::from_binance_error(error)),
+            None => Err(Error::Api {
                 code: status.as_u16() as i32,
-                message: format!("Unexpected status code: {}", status),
+                message: if body.is_empty() {
+                    format!("Unexpected status code: {}", status)
+                } else {
+                    body
+                },
             }),
         }
     }

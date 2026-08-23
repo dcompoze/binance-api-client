@@ -22,6 +22,7 @@ const SAPI_V1_MARGIN_TRANSFER: &str = "/sapi/v1/margin/transfer";
 const SAPI_V1_MARGIN_ISOLATED_TRANSFER: &str = "/sapi/v1/margin/isolated/transfer";
 const SAPI_V1_MARGIN_LOAN: &str = "/sapi/v1/margin/loan";
 const SAPI_V1_MARGIN_REPAY: &str = "/sapi/v1/margin/repay";
+const SAPI_V1_MARGIN_BORROW_REPAY: &str = "/sapi/v1/margin/borrow-repay";
 const SAPI_V1_MARGIN_ACCOUNT: &str = "/sapi/v1/margin/account";
 const SAPI_V1_MARGIN_ISOLATED_ACCOUNT: &str = "/sapi/v1/margin/isolated/account";
 const SAPI_V1_MARGIN_ORDER: &str = "/sapi/v1/margin/order";
@@ -315,6 +316,98 @@ impl Margin {
     /// let result = client.margin().loan("BTC", "0.1", false, None).await?;
     /// println!("Loan transaction ID: {}", result.tran_id);
     /// ```
+    /// Borrow or repay margin funds using `POST /sapi/v1/margin/borrow-repay`.
+    ///
+    /// # Arguments
+    ///
+    /// * `asset` - Asset to borrow or repay
+    /// * `amount` - Amount to borrow or repay
+    /// * `borrow` - True to borrow, false to repay
+    /// * `is_isolated` - Use the isolated margin account
+    /// * `symbol` - Isolated margin symbol, required when `is_isolated` is true
+    pub async fn borrow_repay(
+        &self,
+        asset: &str,
+        amount: &str,
+        borrow: bool,
+        is_isolated: bool,
+        symbol: Option<&str>,
+    ) -> Result<TransactionId> {
+        let mut params: Vec<(&str, String)> = vec![
+            ("asset", asset.to_string()),
+            ("amount", amount.to_string()),
+            ("type", if borrow { "BORROW" } else { "REPAY" }.to_string()),
+            (
+                "isIsolated",
+                if is_isolated { "TRUE" } else { "FALSE" }.to_string(),
+            ),
+        ];
+        if let Some(s) = symbol {
+            params.push(("symbol", s.to_string()));
+        }
+
+        let params_ref: Vec<(&str, &str)> = params.iter().map(|(k, v)| (*k, v.as_str())).collect();
+        self.client
+            .post_signed(SAPI_V1_MARGIN_BORROW_REPAY, &params_ref)
+            .await
+    }
+
+    /// Query borrow and repay records using `GET /sapi/v1/margin/borrow-repay`.
+    ///
+    /// # Arguments
+    ///
+    /// * `asset` - Asset to query
+    /// * `borrow` - True for borrow records, false for repay records
+    /// * `isolated_symbol` - Isolated margin symbol, if querying isolated records
+    /// * `tx_id` - Transaction id to query
+    /// * `start_time` - Start time in milliseconds
+    /// * `end_time` - End time in milliseconds
+    /// * `current` - Page number, default 1
+    /// * `size` - Page size, default 10, maximum 100
+    #[allow(clippy::too_many_arguments)]
+    pub async fn borrow_repay_records(
+        &self,
+        asset: &str,
+        borrow: bool,
+        isolated_symbol: Option<&str>,
+        tx_id: Option<u64>,
+        start_time: Option<u64>,
+        end_time: Option<u64>,
+        current: Option<u32>,
+        size: Option<u32>,
+    ) -> Result<RecordsQueryResult<LoanRecord>> {
+        let mut params: Vec<(&str, String)> = vec![
+            ("asset", asset.to_string()),
+            ("type", if borrow { "BORROW" } else { "REPAY" }.to_string()),
+        ];
+        if let Some(s) = isolated_symbol {
+            params.push(("isolatedSymbol", s.to_string()));
+        }
+        if let Some(id) = tx_id {
+            params.push(("txId", id.to_string()));
+        }
+        if let Some(t) = start_time {
+            params.push(("startTime", t.to_string()));
+        }
+        if let Some(t) = end_time {
+            params.push(("endTime", t.to_string()));
+        }
+        if let Some(c) = current {
+            params.push(("current", c.to_string()));
+        }
+        if let Some(sz) = size {
+            params.push(("size", sz.to_string()));
+        }
+
+        let params_ref: Vec<(&str, &str)> = params.iter().map(|(k, v)| (*k, v.as_str())).collect();
+        self.client
+            .get_signed(SAPI_V1_MARGIN_BORROW_REPAY, &params_ref)
+            .await
+    }
+
+    #[deprecated(
+        note = "`POST /sapi/v1/margin/loan` is deprecated by Binance. Use `borrow_repay` instead."
+    )]
     pub async fn loan(
         &self,
         asset: &str,
@@ -354,6 +447,9 @@ impl Margin {
     /// let result = client.margin().repay("BTC", "0.1", false, None).await?;
     /// println!("Repay transaction ID: {}", result.tran_id);
     /// ```
+    #[deprecated(
+        note = "`POST /sapi/v1/margin/repay` is deprecated by Binance. Use `borrow_repay` instead."
+    )]
     pub async fn repay(
         &self,
         asset: &str,
@@ -529,7 +625,7 @@ impl Margin {
         let mut params: Vec<(&str, String)> = vec![
             ("symbol", symbol.to_string()),
             ("side", format!("{:?}", side).to_uppercase()),
-            ("type", format!("{:?}", order_type).to_uppercase()),
+            ("type", order_type.to_string()),
         ];
 
         if let Some(qty) = quantity {

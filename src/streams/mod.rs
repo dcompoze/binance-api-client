@@ -17,7 +17,7 @@
 //! #[tokio::main]
 //! async fn main() -> binance_api_client::Result<()> {
 //!     let client = Binance::new_unauthenticated()?;
-//!     let ws = client.websocket();
+//!     let ws = client.streams();
 //!
 //!     // Connect to a single stream
 //!     let stream = ws.agg_trade_stream("btcusdt");
@@ -106,7 +106,7 @@ impl WebSocketClient {
     /// # Example
     ///
     /// ```rust,ignore
-    /// let ws = client.websocket();
+    /// let ws = client.streams();
     /// let stream = ws.agg_trade_stream("btcusdt");
     /// let mut conn = ws.connect(&stream).await?;
     /// ```
@@ -124,7 +124,7 @@ impl WebSocketClient {
     /// # Example
     ///
     /// ```rust,ignore
-    /// let ws = client.websocket();
+    /// let ws = client.streams();
     /// let streams = vec![
     ///     ws.agg_trade_stream("btcusdt"),
     ///     ws.agg_trade_stream("ethusdt"),
@@ -150,8 +150,11 @@ impl WebSocketClient {
     ///
     /// ```rust,ignore
     /// let listen_key = client.user_stream().start().await?;
-    /// let mut conn = client.websocket().connect_user_stream(&listen_key).await?;
+    /// let mut conn = client.streams().connect_user_stream(&listen_key).await?;
     /// ```
+    #[deprecated(
+        note = "The listenKey endpoints were removed from Binance production on 2026-02-20. Use `WsApiConnection::subscribe_user_data_with_signature` instead. This remains functional only on Binance.US."
+    )]
     pub async fn connect_user_stream(&self, listen_key: &str) -> Result<WebSocketConnection> {
         let url = format!("{}/ws/{}", self.config.ws_endpoint, listen_key);
         self.connect_url(&url).await
@@ -169,7 +172,7 @@ impl WebSocketClient {
     /// # Example
     ///
     /// ```rust,ignore
-    /// let ws = client.websocket();
+    /// let ws = client.streams();
     /// let stream = ws.agg_trade_stream("btcusdt");
     /// let mut conn = ws.connect_with_reconnect(&stream).await?;
     ///
@@ -245,11 +248,54 @@ impl WebSocketClient {
         format!("{}@ticker", symbol.to_lowercase())
     }
 
-    /// Get the 24hr ticker stream for all symbols.
+    /// Get the average price stream name for a symbol.
     ///
-    /// Stream: `!ticker@arr`
-    pub fn all_ticker_stream(&self) -> String {
-        "!ticker@arr".to_string()
+    /// Stream: `<symbol>@avgPrice`
+    pub fn avg_price_stream(&self, symbol: &str) -> String {
+        format!("{}@avgPrice", symbol.to_lowercase())
+    }
+
+    /// Get the reference price stream name for a symbol.
+    ///
+    /// Stream: `<symbol>@referencePrice`
+    pub fn reference_price_stream(&self, symbol: &str) -> String {
+        format!("{}@referencePrice", symbol.to_lowercase())
+    }
+
+    /// Get the block trade stream name for a symbol.
+    ///
+    /// Stream: `<symbol>@blockTrade`
+    pub fn block_trade_stream(&self, symbol: &str) -> String {
+        format!("{}@blockTrade", symbol.to_lowercase())
+    }
+
+    /// Get the rolling window ticker stream name for a symbol.
+    ///
+    /// Stream: `<symbol>@ticker_<window>`
+    /// Supported windows are `1h`, `4h`, and `1d`.
+    pub fn rolling_window_ticker_stream(&self, symbol: &str, window: &str) -> String {
+        format!("{}@ticker_{}", symbol.to_lowercase(), window)
+    }
+
+    /// Get the rolling window ticker stream for all symbols.
+    ///
+    /// Stream: `!ticker_<window>@arr`
+    /// Supported windows are `1h`, `4h`, and `1d`.
+    pub fn all_rolling_window_ticker_stream(&self, window: &str) -> String {
+        format!("!ticker_{}@arr", window)
+    }
+
+    /// Get the kline stream name for a symbol with a timezone offset.
+    ///
+    /// Stream: `<symbol>@kline_<interval>+<offset>`
+    /// For example, offset `"+08:00"` gives klines in UTC+8.
+    pub fn kline_stream_with_timezone(
+        &self,
+        symbol: &str,
+        interval: KlineInterval,
+        offset: &str,
+    ) -> String {
+        format!("{}@kline_{}{}", symbol.to_lowercase(), interval, offset)
     }
 
     /// Get the book ticker stream name for a symbol.
@@ -310,6 +356,7 @@ impl WebSocketClient {
 pub struct WebSocketConnection {
     inner: TungsteniteStream<MaybeTlsStream<TcpStream>>,
     last_ping: Instant,
+    next_control_id: u64,
 }
 
 impl WebSocketConnection {
@@ -317,52 +364,103 @@ impl WebSocketConnection {
         Self {
             inner: stream,
             last_ping: Instant::now(),
+            next_control_id: 1,
         }
     }
 
     /// Receive the next WebSocket event.
     ///
     /// Returns `None` if the connection is closed.
+    /// Control frame responses (from `subscribe` and `unsubscribe`) are
+    /// skipped. Use `next_with_stream` to also get the stream name on
+    /// combined connections.
     pub async fn next(&mut self) -> Option<Result<WebSocketEvent>> {
         loop {
-            match self.inner.next().await? {
-                Ok(Message::Text(text)) => {
-                    // Try to parse as a combined stream message first
-                    if let Ok(combined) = serde_json::from_str::<CombinedStreamMessage>(&text) {
-                        return Some(Ok(combined.data));
-                    }
-                    // Otherwise parse as a regular event
-                    return Some(serde_json::from_str(&text).map_err(Error::Serialization));
-                }
-                Ok(Message::Binary(data)) => {
-                    if let Ok(combined) = serde_json::from_slice::<CombinedStreamMessage>(&data) {
-                        return Some(Ok(combined.data));
-                    }
-                    return Some(serde_json::from_slice(&data).map_err(Error::Serialization));
-                }
+            match self.next_with_stream().await? {
+                Ok((_, event)) => return Some(Ok(event)),
+                Err(e) => return Some(Err(e)),
+            }
+        }
+    }
+
+    /// Receive the next WebSocket event together with its stream name.
+    ///
+    /// The stream name is present on combined stream connections and `None`
+    /// on single stream connections.
+    /// Returns `None` if the connection is closed.
+    pub async fn next_with_stream(&mut self) -> Option<Result<(Option<String>, WebSocketEvent)>> {
+        loop {
+            let value: serde_json::Value = match self.inner.next().await? {
+                Ok(Message::Text(text)) => match serde_json::from_str(&text) {
+                    Ok(v) => v,
+                    Err(e) => return Some(Err(Error::Serialization(e))),
+                },
+                Ok(Message::Binary(data)) => match serde_json::from_slice(&data) {
+                    Ok(v) => v,
+                    Err(e) => return Some(Err(Error::Serialization(e))),
+                },
                 Ok(Message::Ping(data)) => {
                     self.last_ping = Instant::now();
-                    // Respond to ping with pong
                     if let Err(e) = self.inner.send(Message::Pong(data)).await {
                         return Some(Err(Error::WebSocket(e)));
                     }
-                }
-                Ok(Message::Pong(_)) => {
-                    // Ignore pong messages
                     continue;
                 }
-                Ok(Message::Close(_)) => {
-                    return None;
+                Ok(Message::Pong(_)) | Ok(Message::Frame(_)) => continue,
+                Ok(Message::Close(_)) => return None,
+                Err(e) => return Some(Err(Error::WebSocket(e))),
+            };
+
+            // Combined stream messages wrap the event in `{stream, data}`.
+            let (stream, payload) = match value.get("stream").and_then(|s| s.as_str()) {
+                Some(stream) => {
+                    let stream = stream.to_string();
+                    match value.get("data") {
+                        Some(data) => (Some(stream), data.clone()),
+                        None => continue,
+                    }
                 }
-                Ok(Message::Frame(_)) => {
-                    // Raw frames shouldn't appear in normal operation
-                    continue;
-                }
-                Err(e) => {
-                    return Some(Err(Error::WebSocket(e)));
-                }
+                None => (None, value),
+            };
+
+            // Skip control frame responses such as `{"result":null,"id":1}`.
+            if payload.get("e").is_none() && !payload.is_array() {
+                continue;
             }
+
+            return Some(
+                serde_json::from_value(payload)
+                    .map(|event| (stream, event))
+                    .map_err(Error::Serialization),
+            );
         }
+    }
+
+    /// Subscribe to additional streams on this connection.
+    ///
+    /// The server confirms with a `{"result": null, "id": ...}` frame,
+    /// which is skipped by `next`.
+    pub async fn subscribe(&mut self, streams: &[String]) -> Result<()> {
+        self.send_control("SUBSCRIBE", streams).await
+    }
+
+    /// Unsubscribe from streams on this connection.
+    pub async fn unsubscribe(&mut self, streams: &[String]) -> Result<()> {
+        self.send_control("UNSUBSCRIBE", streams).await
+    }
+
+    async fn send_control(&mut self, method: &str, streams: &[String]) -> Result<()> {
+        let id = self.next_control_id;
+        self.next_control_id += 1;
+        let frame = serde_json::json!({
+            "method": method,
+            "params": streams,
+            "id": id,
+        });
+        self.inner
+            .send(Message::Text(frame.to_string().into()))
+            .await
+            .map_err(Error::WebSocket)
     }
 
     /// Receive the next raw message (for depth cache management).
@@ -911,7 +1009,7 @@ pub enum DepthCacheState {
 ///
 /// ```rust,ignore
 /// use binance_api_client::Binance;
-/// use binance_api_client::ws::{DepthCacheManager, DepthCacheConfig};
+/// use binance_api_client::streams::{DepthCacheManager, DepthCacheConfig};
 ///
 /// let client = Binance::new_unauthenticated()?;
 /// let config = DepthCacheConfig::default();
@@ -991,7 +1089,7 @@ impl DepthCacheManager {
         is_stopped: Arc<AtomicBool>,
         cache_tx: mpsc::Sender<DepthCache>,
     ) {
-        let ws = client.websocket();
+        let ws = client.streams();
         let stream = ws.diff_depth_stream(&symbol, config.fast_updates);
 
         loop {
@@ -1175,7 +1273,7 @@ impl DepthCacheManager {
 ///
 /// ```rust,ignore
 /// use binance_api_client::Binance;
-/// use binance_api_client::ws::UserDataStreamManager;
+/// use binance_api_client::streams::UserDataStreamManager;
 ///
 /// let client = Binance::new("api_key", "secret_key")?;
 /// let mut manager = UserDataStreamManager::new(client).await?;
@@ -1192,12 +1290,16 @@ impl DepthCacheManager {
 ///     }
 /// }
 /// ```
+#[deprecated(
+    note = "The listenKey endpoints were removed from Binance production on 2026-02-20. Use `WsApiConnection::subscribe_user_data_with_signature` instead. This remains functional only on Binance.US."
+)]
 pub struct UserDataStreamManager {
     listen_key: Arc<RwLock<String>>,
     is_stopped: Arc<AtomicBool>,
     event_rx: mpsc::Receiver<Result<WebSocketEvent>>,
 }
 
+#[allow(deprecated)]
 impl UserDataStreamManager {
     /// Create a new user data stream manager.
     ///
@@ -1281,7 +1383,7 @@ impl UserDataStreamManager {
             }
 
             let key = listen_key.read().await.clone();
-            let ws = client.websocket();
+            let ws = client.streams();
 
             match ws.connect_user_stream(&key).await {
                 Ok(mut conn) => {
@@ -1401,16 +1503,6 @@ impl ConnectionHealthMonitor {
     }
 }
 
-// Combined stream message.
-
-/// Combined stream message wrapper.
-#[derive(serde::Deserialize)]
-struct CombinedStreamMessage {
-    #[allow(dead_code)]
-    stream: String,
-    data: WebSocketEvent,
-}
-
 // Tests.
 
 #[cfg(test)]
@@ -1431,7 +1523,6 @@ mod tests {
         assert_eq!(ws.ticker_stream("BTCUSDT"), "btcusdt@ticker");
         assert_eq!(ws.book_ticker_stream("BTCUSDT"), "btcusdt@bookTicker");
         assert_eq!(ws.all_mini_ticker_stream(), "!miniTicker@arr");
-        assert_eq!(ws.all_ticker_stream(), "!ticker@arr");
         assert_eq!(ws.all_book_ticker_stream(), "!bookTicker");
     }
 

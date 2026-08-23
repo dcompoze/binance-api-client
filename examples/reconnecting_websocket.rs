@@ -18,7 +18,7 @@ async fn main() -> binance_api_client::Result<()> {
 
     // Create an unauthenticated client
     let client = Binance::new_unauthenticated()?;
-    let ws = client.websocket();
+    let ws = client.streams();
 
     // Show the reconnection configuration
     let config = ReconnectConfig::default();

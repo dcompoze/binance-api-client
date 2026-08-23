@@ -3,10 +3,15 @@
 Async Rust client for Binance Spot REST and WebSocket APIs:
 
 - Async REST client for market, account, wallet, and margin endpoints.
-- WebSocket support for market streams and user data streams.
+- WebSocket API client for trading, account queries, and user data streams.
+- WebSocket support for market streams with live subscribe/unsubscribe.
 - Auth support for HMAC-SHA256, RSA-SHA256, and Ed25519 signatures.
 - Production, testnet, and Binance.US configuration.
 - Typed request builders and typed response models.
+- Server time synchronization and rate limit telemetry.
+
+User data streams use the WebSocket API (`userDataStream.subscribe`), since
+the listenKey endpoints were removed from Binance production on 2026-02-20.
 
 ## Library
 
@@ -51,7 +56,8 @@ async fn main() -> Result<()> {
 ├── examples/            # Runnable examples showing common client usage.
 ├── src/                 # Library implementation.
 │   ├── rest/            # REST endpoint clients.
-│   ├── ws/              # WebSocket client and stream management.
+│   ├── streams/         # WebSocket market stream client and stream management.
+│   ├── ws_api/          # WebSocket API client (trading and user data streams).
 │   └── models/          # Typed request and response models.
 └── tests/               # Integration tests.
     └── mocks/           # Mock fixtures used by tests.

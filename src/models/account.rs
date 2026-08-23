@@ -299,6 +299,21 @@ pub struct Order {
     /// Self-trade prevention mode.
     #[serde(default)]
     pub self_trade_prevention_mode: Option<String>,
+    /// Reason the order expired, present on expired orders.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub expiry_reason: Option<crate::types::ExpiryReason>,
+    /// Pegged price type.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub peg_price_type: Option<String>,
+    /// Pegged offset type.
+    #[serde(skip_serializing_if = "Option::is_none", alias = "pegOffSetType")]
+    pub peg_offset_type: Option<String>,
+    /// Pegged offset value.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub peg_offset_value: Option<i64>,
+    /// Current pegged price.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub pegged_price: Option<String>,
 }
 
 impl Order {
@@ -381,6 +396,21 @@ pub struct OrderResult {
     /// Self-trade prevention mode.
     #[serde(default)]
     pub self_trade_prevention_mode: Option<String>,
+    /// Reason the order expired, present on expired orders.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub expiry_reason: Option<crate::types::ExpiryReason>,
+    /// Pegged price type.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub peg_price_type: Option<String>,
+    /// Pegged offset type.
+    #[serde(skip_serializing_if = "Option::is_none", alias = "pegOffSetType")]
+    pub peg_offset_type: Option<String>,
+    /// Pegged offset value.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub peg_offset_value: Option<i64>,
+    /// Current pegged price.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub pegged_price: Option<String>,
 }
 
 /// New order response (FULL type).
@@ -425,6 +455,21 @@ pub struct OrderFull {
     /// Self-trade prevention mode.
     #[serde(default)]
     pub self_trade_prevention_mode: Option<String>,
+    /// Reason the order expired, present on expired orders.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub expiry_reason: Option<crate::types::ExpiryReason>,
+    /// Pegged price type.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub peg_price_type: Option<String>,
+    /// Pegged offset type.
+    #[serde(skip_serializing_if = "Option::is_none", alias = "pegOffSetType")]
+    pub peg_offset_type: Option<String>,
+    /// Pegged offset value.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub peg_offset_value: Option<i64>,
+    /// Current pegged price.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub pegged_price: Option<String>,
     /// Fills (trades that filled this order).
     #[serde(default)]
     pub fills: Vec<Fill>,
@@ -489,6 +534,21 @@ pub struct CancelOrderResponse {
     /// Self-trade prevention mode.
     #[serde(default)]
     pub self_trade_prevention_mode: Option<String>,
+    /// Reason the order expired, present on expired orders.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub expiry_reason: Option<crate::types::ExpiryReason>,
+    /// Pegged price type.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub peg_price_type: Option<String>,
+    /// Pegged offset type.
+    #[serde(skip_serializing_if = "Option::is_none", alias = "pegOffSetType")]
+    pub peg_offset_type: Option<String>,
+    /// Pegged offset value.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub peg_offset_value: Option<i64>,
+    /// Current pegged price.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub pegged_price: Option<String>,
 }
 
 /// Cancel-replace error info.
@@ -680,6 +740,21 @@ pub struct OcoOrderReport {
     /// Self-trade prevention mode.
     #[serde(default)]
     pub self_trade_prevention_mode: Option<String>,
+    /// Reason the order expired, present on expired orders.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub expiry_reason: Option<crate::types::ExpiryReason>,
+    /// Pegged price type.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub peg_price_type: Option<String>,
+    /// Pegged offset type.
+    #[serde(skip_serializing_if = "Option::is_none", alias = "pegOffSetType")]
+    pub peg_offset_type: Option<String>,
+    /// Pegged offset value.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub peg_offset_value: Option<i64>,
+    /// Current pegged price.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub pegged_price: Option<String>,
 }
 
 /// User data stream listen key response.
@@ -781,6 +856,21 @@ pub struct AmendedOrderInfo {
     /// Self-trade prevention mode.
     #[serde(default)]
     pub self_trade_prevention_mode: Option<String>,
+    /// Reason the order expired, present on expired orders.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub expiry_reason: Option<crate::types::ExpiryReason>,
+    /// Pegged price type.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub peg_price_type: Option<String>,
+    /// Pegged offset type.
+    #[serde(skip_serializing_if = "Option::is_none", alias = "pegOffSetType")]
+    pub peg_offset_type: Option<String>,
+    /// Pegged offset value.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub peg_offset_value: Option<i64>,
+    /// Current pegged price.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub pegged_price: Option<String>,
 }
 
 /// Order list status for amended orders that are part of order lists.

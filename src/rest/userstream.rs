@@ -49,6 +49,9 @@ impl UserStream {
     ///
     /// // Connect to WebSocket using: wss://stream.binance.com:9443/ws/{listen_key}
     /// ```
+    #[deprecated(
+        note = "The listenKey endpoints were removed from Binance production on 2026-02-20. Use the WebSocket API user data stream subscriptions instead. This remains functional only on Binance.US."
+    )]
     pub async fn start(&self) -> Result<String> {
         let response: ListenKey = self
             .client
@@ -75,6 +78,9 @@ impl UserStream {
     /// // Every 30 minutes:
     /// client.user_stream().keepalive(&listen_key).await?;
     /// ```
+    #[deprecated(
+        note = "The listenKey endpoints were removed from Binance production on 2026-02-20. Use the WebSocket API user data stream subscriptions instead. This remains functional only on Binance.US."
+    )]
     pub async fn keepalive(&self, listen_key: &str) -> Result<()> {
         let params = [("listenKey", listen_key)];
         let _: Value = self
@@ -102,6 +108,9 @@ impl UserStream {
     /// // When done:
     /// client.user_stream().close(&listen_key).await?;
     /// ```
+    #[deprecated(
+        note = "The listenKey endpoints were removed from Binance production on 2026-02-20. Use the WebSocket API user data stream subscriptions instead. This remains functional only on Binance.US."
+    )]
     pub async fn close(&self, listen_key: &str) -> Result<()> {
         let params = [("listenKey", listen_key)];
         let _: Value = self

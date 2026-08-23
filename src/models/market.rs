@@ -75,6 +75,15 @@ pub struct Symbol {
     pub iceberg_allowed: bool,
     /// Whether OCO orders are allowed.
     pub oco_allowed: bool,
+    /// Whether OTO and OTOCO order lists are allowed.
+    #[serde(default)]
+    pub oto_allowed: bool,
+    /// Whether OPO and OPOCO order lists are allowed.
+    #[serde(default)]
+    pub opo_allowed: bool,
+    /// Whether pegged order instructions are allowed.
+    #[serde(default)]
+    pub peg_instructions_allowed: bool,
     /// Whether quote order quantity is allowed for market orders.
     #[serde(default)]
     pub quote_order_qty_market_allowed: bool,
@@ -255,6 +264,64 @@ pub enum SymbolFilter {
     ExchangeMaxNumAlgoOrders {
         /// Maximum number of algo orders.
         max_num_algo_orders: u16,
+    },
+    /// Percent price by side filter.
+    #[serde(rename = "PERCENT_PRICE_BY_SIDE")]
+    #[serde(rename_all = "camelCase")]
+    PercentPriceBySide {
+        /// Upper multiplier for bids.
+        #[serde(with = "string_or_float")]
+        bid_multiplier_up: f64,
+        /// Lower multiplier for bids.
+        #[serde(with = "string_or_float")]
+        bid_multiplier_down: f64,
+        /// Upper multiplier for asks.
+        #[serde(with = "string_or_float")]
+        ask_multiplier_up: f64,
+        /// Lower multiplier for asks.
+        #[serde(with = "string_or_float")]
+        ask_multiplier_down: f64,
+        /// Average price minutes.
+        avg_price_mins: u64,
+    },
+    /// Max order lists on a symbol.
+    #[serde(rename = "MAX_NUM_ORDER_LISTS")]
+    #[serde(rename_all = "camelCase")]
+    MaxNumOrderLists {
+        /// Maximum number of order lists.
+        max_num_order_lists: u32,
+    },
+    /// Max amendments per order.
+    #[serde(rename = "MAX_NUM_ORDER_AMENDS")]
+    #[serde(rename_all = "camelCase")]
+    MaxNumOrderAmends {
+        /// Maximum number of order amendments.
+        max_num_order_amends: u32,
+    },
+    /// Exchange max iceberg orders filter.
+    #[serde(rename = "EXCHANGE_MAX_NUM_ICEBERG_ORDERS")]
+    #[serde(rename_all = "camelCase")]
+    ExchangeMaxNumIcebergOrders {
+        /// Maximum number of iceberg orders.
+        max_num_iceberg_orders: u32,
+    },
+    /// Exchange max order lists filter.
+    #[serde(rename = "EXCHANGE_MAX_NUM_ORDER_LISTS")]
+    #[serde(rename_all = "camelCase")]
+    ExchangeMaxNumOrderLists {
+        /// Maximum number of order lists.
+        max_num_order_lists: u32,
+    },
+    /// Account-level maximum asset balance filter.
+    /// Only visible through `GET /api/v3/myFilters`.
+    #[serde(rename = "MAX_ASSET")]
+    #[serde(rename_all = "camelCase")]
+    MaxAsset {
+        /// Asset the limit applies to.
+        asset: String,
+        /// Maximum balance allowed.
+        #[serde(with = "string_or_float")]
+        limit: f64,
     },
     /// Trailing delta filter.
     #[serde(rename = "TRAILING_DELTA")]
@@ -709,6 +776,124 @@ pub mod string_or_float_opt {
             StringOrFloat::Null => Ok(None),
         }
     }
+}
+
+/// Block trade entry from `GET /api/v3/historicalBlockTrades`.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct BlockTrade {
+    /// Block trade ID.
+    pub id: u64,
+    /// Price.
+    #[serde(with = "string_or_float")]
+    pub price: f64,
+    /// Quantity.
+    #[serde(rename = "qty", with = "string_or_float")]
+    pub quantity: f64,
+    /// Quote quantity.
+    #[serde(rename = "quoteQty", with = "string_or_float")]
+    pub quote_quantity: f64,
+    /// Trade time in milliseconds.
+    pub time: u64,
+    /// Was the buyer the maker.
+    pub is_buyer_maker: bool,
+}
+
+/// Execution rules response from `GET /api/v3/executionRules`.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ExecutionRules {
+    /// Rules per symbol.
+    pub symbol_rules: Vec<SymbolExecutionRules>,
+}
+
+/// Execution rules for a single symbol.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SymbolExecutionRules {
+    /// Symbol name.
+    pub symbol: String,
+    /// Active execution rules.
+    pub rules: Vec<ExecutionRule>,
+}
+
+/// A single execution rule.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(tag = "ruleType")]
+pub enum ExecutionRule {
+    /// Price range execution rule.
+    /// Orders executing outside the range derived from the reference price expire.
+    #[serde(rename = "PRICE_RANGE")]
+    #[serde(rename_all = "camelCase")]
+    PriceRange {
+        /// Upper bid limit multiplier.
+        #[serde(with = "string_or_float")]
+        bid_limit_mult_up: f64,
+        /// Lower bid limit multiplier.
+        #[serde(with = "string_or_float")]
+        bid_limit_mult_down: f64,
+        /// Upper ask limit multiplier.
+        #[serde(with = "string_or_float")]
+        ask_limit_mult_up: f64,
+        /// Lower ask limit multiplier.
+        #[serde(with = "string_or_float")]
+        ask_limit_mult_down: f64,
+    },
+    /// Unknown rule type.
+    #[serde(other)]
+    Other,
+}
+
+/// Reference price response from `GET /api/v3/referencePrice`.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ReferencePrice {
+    /// Symbol name.
+    pub symbol: String,
+    /// Current reference price, `None` when no reference price is set.
+    pub reference_price: Option<String>,
+    /// Timestamp when the reference price was valid.
+    pub timestamp: u64,
+}
+
+/// Reference price calculation from `GET /api/v3/referencePrice/calculation`.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(tag = "calculationType")]
+pub enum ReferencePriceCalculation {
+    /// Calculated by the matching engine as an arithmetic mean.
+    #[serde(rename = "ARITHMETIC_MEAN")]
+    #[serde(rename_all = "camelCase")]
+    ArithmeticMean {
+        /// Number of buckets.
+        bucket_count: u32,
+        /// Bucket width in milliseconds.
+        bucket_width_ms: u64,
+    },
+    /// Calculated outside the matching engine.
+    #[serde(rename = "EXTERNAL")]
+    #[serde(rename_all = "camelCase")]
+    External {
+        /// External calculation method identifier.
+        external_calculation_id: u64,
+    },
+    /// Unknown calculation type.
+    #[serde(other)]
+    Other,
+}
+
+/// Filters relevant to the account from `GET /api/v3/myFilters`.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct MyFilters {
+    /// Exchange-level filters.
+    #[serde(default)]
+    pub exchange_filters: Vec<SymbolFilter>,
+    /// Symbol-level filters.
+    #[serde(default)]
+    pub symbol_filters: Vec<SymbolFilter>,
+    /// Account-level asset filters (`MAX_ASSET`).
+    #[serde(default)]
+    pub asset_filters: Vec<SymbolFilter>,
 }
 
 #[cfg(test)]

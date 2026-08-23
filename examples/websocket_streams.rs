@@ -16,7 +16,7 @@ async fn main() -> binance_api_client::Result<()> {
 
     // Create a client
     let client = Binance::new_unauthenticated()?;
-    let ws = client.websocket();
+    let ws = client.streams();
 
     // Example 1: Single stream - Aggregate Trades
     println!("Connecting to aggregate trade stream for BTCUSDT...");
@@ -157,7 +157,6 @@ async fn main() -> binance_api_client::Result<()> {
     println!("  partial_depth_stream(symbol, levels, fast) - Order book updates");
     println!("  diff_depth_stream(symbol, fast) - Order book diffs");
     println!("  all_mini_ticker_stream()     - All symbols mini ticker");
-    println!("  all_ticker_stream()          - All symbols ticker");
     println!("  all_book_ticker_stream()     - All symbols book ticker");
 
     println!("\n=== Example completed successfully! ===");
