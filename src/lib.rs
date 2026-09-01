@@ -78,6 +78,12 @@
     unused_import_braces
 )]
 
+#[cfg(all(feature = "native-tls", feature = "rustls-tls"))]
+compile_error!("features `native-tls` and `rustls-tls` cannot be enabled together");
+
+#[cfg(not(any(feature = "native-tls", feature = "rustls-tls")))]
+compile_error!("either feature `native-tls` or `rustls-tls` must be enabled");
+
 pub mod client;
 pub mod config;
 pub mod credentials;

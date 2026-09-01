@@ -10,10 +10,20 @@ name = "binance-api-client"
 readme = "README.md"
 repository = "https://github.com/dcompoze/binance-api-client"
 rust-version = "1.85"
-version = "1.0.1"
+version = "1.0.2"
 
 [features]
+default = ["rustls-tls"]
 binance-us = []
+native-tls = ["reqwest/native-tls", "tokio-tungstenite/native-tls"]
+rustls-tls = [
+    "reqwest/rustls",
+    "tokio-tungstenite/rustls-tls-native-roots",
+]
+
+[package.metadata.docs.rs]
+features = ["rustls-tls"]
+no-default-features = true
 
 [lib]
 name = "binance_api_client"
@@ -24,7 +34,12 @@ base64 = "0.23"
 futures-util = "0.3.31"
 hex = "0.4"
 rand = "0.8"
-reqwest = { version = "0.13.1", features = ["json"] }
+reqwest = { version = "0.13.1", default-features = false, features = [
+    "charset",
+    "http2",
+    "json",
+    "system-proxy",
+] }
 reqwest-middleware = "0.5.0"
 reqwest-retry = "0.9.0"
 reqwest-tracing = "0.6.0"
@@ -37,7 +52,7 @@ serde_repr = "0.1"
 sha2 = "0.10"
 thiserror = "2.0.17"
 tokio = { version = "1.49.0", features = ["rt", "macros"] }
-tokio-tungstenite = "0.30.0"
+tokio-tungstenite = { version = "0.30.0", default-features = false, features = ["connect"] }
 tracing = "0.1.44"
 url = "2.5.8"
 urlencoding = "2.1.3"
